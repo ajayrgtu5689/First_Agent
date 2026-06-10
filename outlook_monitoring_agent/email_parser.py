@@ -46,179 +46,226 @@ class MonitoringData:
     report_date: str = ""
 
 
+# Database/instance section header, e.g. CTSPRD, CDBPRD, EBSPRD, HFAPRD,
+# REPPRD, CTSTST, CTSDEV, CDBDEV, EBSTST, HFATST, etc.
+DB_HEADER_RE = re.compile(
+    r'^([A-Z]{2,4}(?:PRD|PROD|TST|TEST|DEV|QTS|QA)\d*)\s*$',
+    re.IGNORECASE
+)
+
+
+def _unwrap_numeric_tails(lines):
+    """
+    Re-join lines that Outlook wrapped in the middle of a number.
+
+    The plain-text email body wraps at ~79 chars, which can split a value
+    such as ``88.3`` into ``88.`` + ``3`` or ``92`` into ``9`` + ``2``.
+    A continuation line that is purely digits is glued back onto the
+    previous line when that line ends with a digit or a dot.
+    """
+    out = []
+    for raw in lines:
+        s = raw.rstrip('\n')
+        stripped = s.strip()
+        if stripped and re.fullmatch(r'\d+', stripped) and out:
+            prev = out[-1].rstrip()
+            if re.search(r'[\d.]$', prev):
+                out[-1] = prev + stripped
+                continue
+        out.append(s)
+    return out
+
+
 def parse_tablespace_data(email_body):
     """
     Parse tablespace monitoring data from email body.
-    Handles common formats:
-    - DB_NAME | TABLESPACE_NAME | USED% | SIZE | FREE
-    - Tabular or space-separated formats
+
+    Expected format (DB name is a section header; %USED is the last column
+    and may be wrapped across two lines by Outlook):
+
+        CTSPRD
+        ===1==
+        TABLESPACE_NAME    MAXSIZE(GB) CURSIZE(GB) USED(GB) %USED OF MAX SIZE
+        ------------------ ----------- ----------- -------- -------------------
+        TS_ESONG_DATA               20          19       18                88.3
+        TS_REPLICATION              16          16       15                  92
     """
     entries = []
-    lines = email_body.split('\n')
-    
-    # Patterns to match tablespace data
-    # Pattern 1: DATABASE  TABLESPACE  USED_PCT
-    pattern1 = re.compile(
-        r'(\w+)\s+(\w+)\s+(\d+\.?\d*)\s*%', re.IGNORECASE
-    )
-    # Pattern 2: TABLESPACE_NAME  USED_PCT%  (with DB context from header)
-    pattern2 = re.compile(
-        r'(TS_\w+|SYSTEM|SYSAUX|USERS|UNDOTBS\d*|TEMP)\s+.*?(\d+\.?\d*)\s*%',
+    lines = _unwrap_numeric_tails(email_body.split('\n'))
+
+    # NAME  MAX  CUR  USED  %USED   (name + 4 numeric columns)
+    row_re = re.compile(
+        r'^([A-Z][A-Z0-9_$#]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s*$',
         re.IGNORECASE
     )
-    # Pattern 3: Pipe-separated format
-    pattern3 = re.compile(
-        r'\|?\s*(\w+)\s*\|?\s*(TS_\w+|SYSTEM|SYSAUX|USERS|UNDOTBS\d*|TEMP)\s*\|?\s*(\d+\.?\d*)\s*%?',
-        re.IGNORECASE
-    )
-    
+
     current_db = ""
-    
-    for line in lines:
-        line = line.strip()
+
+    for raw in lines:
+        line = raw.strip()
         if not line:
             continue
-        
-        # Detect database context headers
+
+        # Skip header / separator rows
+        if line.upper().startswith('TABLESPACE_NAME') or set(line) <= set('-= '):
+            continue
+
+        # Labeled DB context (Database: X)
         db_header = re.match(r'(?:Database|DB|Instance)[:\s]+(\w+)', line, re.IGNORECASE)
         if db_header:
-            current_db = db_header.group(1)
+            current_db = db_header.group(1).upper()
             continue
-        
-        # Also detect DB name if it appears as a section header
-        db_section = re.match(r'^(CDB\w+|CTS\w+|HFA\w+|GG\w+)\s*[:-]?\s*$', line, re.IGNORECASE)
+
+        # Standalone DB section header (CTSPRD, CDBPRD, ...)
+        db_section = DB_HEADER_RE.match(line)
         if db_section:
-            current_db = db_section.group(1)
+            current_db = db_section.group(1).upper()
             continue
-        
-        # Try pattern 3 (pipe-separated) first
-        match = pattern3.search(line)
-        if match:
-            db = match.group(1) if match.group(1) else current_db
-            ts_name = match.group(2)
-            pct = float(match.group(3))
-            entries.append(TablespaceEntry(
-                database=db.upper(),
-                tablespace_name=ts_name.upper(),
-                used_percent=pct
-            ))
-            continue
-        
-        # Try pattern 2
-        match = pattern2.search(line)
+
+        match = row_re.match(line)
         if match and current_db:
-            ts_name = match.group(1)
-            pct = float(match.group(2))
             entries.append(TablespaceEntry(
-                database=current_db.upper(),
-                tablespace_name=ts_name.upper(),
-                used_percent=pct
+                database=current_db,
+                tablespace_name=match.group(1).upper(),
+                used_percent=float(match.group(5)),
+                size_mb=float(match.group(2)),
+                free_mb=float(match.group(2)) - float(match.group(4)),
             ))
-            continue
-    
+
     return entries
 
 
+
 def parse_diskgroup_data(email_body):
-    """Parse ASM diskgroup monitoring data from email body."""
+    """
+    Parse ASM diskgroup monitoring data from email body.
+
+    Expected format (no '%' symbol; PCT_USED is the last column):
+
+        CTSPRD
+        ==1===
+        GROUP_NAME    TOTAL_GB    FREE_GB    USED_GB   PCT_USED
+        ----------    --------    -------    -------   --------
+        DATA             24576        5212      19363      78.79
+        BULK             15360        4440      10920       71.1
+        FRA               8192        5473       2719      33.19
+    """
     entries = []
     lines = email_body.split('\n')
-    
-    # Pattern: DISKGROUP_NAME  TOTAL  FREE  USED_PCT
-    pattern = re.compile(
-        r'(DATA|FRA|REDO|ARCH)\s+.*?(\d+\.?\d*)\s*%', re.IGNORECASE
+
+    # Known ASM diskgroup names
+    dg_names = r'DATA|FRA|REDO|ARCH|BULK|RECO'
+
+    # Row with full columns: NAME TOTAL FREE USED PCT  (PCT may be like ".01")
+    row_full = re.compile(
+        rf'^({dg_names})\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s*$',
+        re.IGNORECASE
     )
-    # Pattern with DB context
-    pattern_full = re.compile(
-        r'(\w+)\s+(DATA|FRA|REDO|ARCH)\s+.*?(\d+\.?\d*)\s*%', re.IGNORECASE
+    # Fallback: NAME ... <last number is PCT>
+    row_simple = re.compile(
+        rf'^({dg_names})\b.*?([\d.]+)\s*%?\s*$', re.IGNORECASE
     )
-    
+
     current_db = ""
-    
-    for line in lines:
-        line = line.strip()
+
+    for raw in lines:
+        line = raw.strip()
         if not line:
             continue
-        
-        # Detect DB context
+
+        # Skip header/separator lines
+        if line.upper().startswith('GROUP_NAME') or set(line) <= set('- '):
+            continue
+
+        # Detect DB context from labeled headers
         db_header = re.match(r'(?:Database|DB|Instance|Host)[:\s]+(\w+)', line, re.IGNORECASE)
         if db_header:
             current_db = db_header.group(1)
             continue
-        
-        db_section = re.match(r'^(CDB\w+|CTS\w+|HFA\w+|GG\w+)\s*[:-]?\s*$', line, re.IGNORECASE)
+
+        # Detect DB context from a standalone instance header (e.g. CTSPRD, CDBPRD)
+        db_section = DB_HEADER_RE.match(line)
         if db_section:
             current_db = db_section.group(1)
             continue
-        
-        # Try full pattern
-        match = pattern_full.search(line)
+
+        # Full row with all columns
+        match = row_full.match(line)
         if match:
             entries.append(DiskgroupEntry(
-                database=match.group(1).upper(),
-                diskgroup_name=match.group(2).upper(),
-                used_percent=float(match.group(3))
+                database=current_db.upper(),
+                diskgroup_name=match.group(1).upper(),
+                used_percent=float(match.group(5)),
+                total_gb=float(match.group(2)),
+                free_gb=float(match.group(3)),
             ))
             continue
-        
-        # Try simple pattern
-        match = pattern.search(line)
+
+        # Simple fallback row
+        match = row_simple.match(line)
         if match and current_db:
             entries.append(DiskgroupEntry(
                 database=current_db.upper(),
                 diskgroup_name=match.group(1).upper(),
-                used_percent=float(match.group(2))
+                used_percent=float(match.group(2)),
             ))
-    
+
     return entries
 
 
 def parse_mount_point_data(email_body):
-    """Parse mount point / filesystem usage data from email body."""
+    """
+    Parse mount point / filesystem usage data from a `df -h` style email.
+
+    The database/host is a section header (e.g. CTSPRD, EBSPRD, CTSTST,
+    CTSDEV, EBSTST). Each filesystem row ends with the "Mounted on" path,
+    preceded by the integer Use%:
+
+        CTSPRD
+        ===1===
+        Filesystem    Size  Used Avail Use% Mounted on
+        /dev/xvda1     99G   34G   61G  37% /
+        /dev/xvdf1     99G   76G   18G  82% /a01
+
+    We anchor on ``<NN>% <mountpoint>`` so that Outlook line-wrapping and
+    df's own device-name wrapping are both handled correctly.
+    """
     entries = []
     lines = email_body.split('\n')
-    
-    # Pattern: /mount/point  SIZE  USED  AVAIL  USE%
-    pattern = re.compile(
-        r'(/\S*)\s+\S+\s+\S+\s+\S+\s+(\d+)%', re.IGNORECASE
-    )
-    # Alternative: /mount  USED%
-    pattern_alt = re.compile(
-        r'(/\S+)\s+.*?(\d+)\s*%', re.IGNORECASE
-    )
-    
+
+    # "<use%> <mounted-on path>"  e.g. "82% /a01", "1% /dev/shm"
+    use_re = re.compile(r'(\d+)%\s+(/\S*)')
+
     current_host = ""
-    
-    for line in lines:
-        line = line.strip()
+
+    for raw in lines:
+        line = raw.strip()
         if not line:
             continue
-        
-        # Detect host context
+
+        # Labeled host context (Host: X)
         host_header = re.match(r'(?:Host|Server|Node)[:\s]+(\S+)', line, re.IGNORECASE)
         if host_header:
-            current_host = host_header.group(1)
+            current_host = host_header.group(1).upper()
             continue
-        
-        # Try standard df-like format
-        match = pattern.search(line)
-        if match:
+
+        # Standalone DB/host section header (CTSPRD, EBSPRD, ...)
+        db_section = DB_HEADER_RE.match(line)
+        if db_section:
+            current_host = db_section.group(1).upper()
+            continue
+
+        # Skip the df column header
+        if line.lower().startswith('filesystem'):
+            continue
+
+        for m in use_re.finditer(raw):
             entries.append(MountPointEntry(
                 host=current_host,
-                mount_point=match.group(1),
-                used_percent=float(match.group(2))
+                mount_point=m.group(2),
+                used_percent=float(m.group(1)),
             ))
-            continue
-        
-        # Try alternative format
-        match = pattern_alt.search(line)
-        if match and match.group(1).startswith('/'):
-            entries.append(MountPointEntry(
-                host=current_host,
-                mount_point=match.group(1),
-                used_percent=float(match.group(2))
-            ))
-    
+
     return entries
 
 

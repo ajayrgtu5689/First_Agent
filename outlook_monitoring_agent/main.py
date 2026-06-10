@@ -14,6 +14,7 @@ Usage:
 """
 
 import argparse
+import re
 import sys
 import os
 from datetime import datetime
@@ -27,7 +28,7 @@ from outlook_reader import (
     send_email,
 )
 from email_parser import parse_monitoring_emails
-from report_generator import generate_full_report
+from report_generator import generate_full_report, generate_html_report
 
 
 # Your email address for receiving the summary report
@@ -46,6 +47,36 @@ MONITORING_KEYWORDS = [
     "Thursday-Friday",
     "Friday",
 ]
+
+
+def normalize_subject(subject):
+    """Strip dates and extra whitespace so the same report type collapses to one key."""
+    s = subject.lower()
+    # Remove dates like "05-Jun-2026", "05 Jun 2026", "5-jun-26"
+    s = re.sub(r'\d{1,2}[-/ ]*[a-z]{3,}[-/ ]*\d{2,4}', '', s)
+    # Remove ISO dates like "2026-06-05"
+    s = re.sub(r'\d{4}-\d{2}-\d{2}', '', s)
+    # Collapse separators/whitespace
+    s = re.sub(r'[-_]+', ' ', s)
+    s = re.sub(r'\s+', ' ', s).strip()
+    return s
+
+
+def deduplicate_latest(emails):
+    """
+    Keep only the most recent email of each report type.
+
+    Emails are expected to be sorted newest-first, so the first occurrence
+    of each normalized subject is the latest one.
+    """
+    seen = set()
+    unique = []
+    for email in sorted(emails, key=lambda e: e['received_time'], reverse=True):
+        key = normalize_subject(email['subject'])
+        if key not in seen:
+            seen.add(key)
+            unique.append(email)
+    return unique
 
 
 def list_outlook_folders():
@@ -123,6 +154,11 @@ def run_agent(folder_name="Friday Monitoring", target_date=None, output_file=Non
         print(f"    - Try increasing --days-back (current: {days_back})")
         sys.exit(0)
     
+    # Keep only the latest email of each report type (drop older duplicates)
+    total_found = len(emails)
+    emails = deduplicate_latest(emails)
+    print(f"  🧹 Using {len(emails)} latest email(s) after removing {total_found - len(emails)} duplicate(s)")
+    
     # Show found emails
     print("\n  Found emails:")
     for i, email in enumerate(emails, 1):
@@ -141,6 +177,7 @@ def run_agent(folder_name="Friday Monitoring", target_date=None, output_file=Non
     report_date = target_date.strftime('%d-%b-%Y') if target_date else datetime.now().strftime('%d-%b-%Y')
     day_name = datetime.now().strftime('%A')
     report = generate_full_report(data, report_date)
+    html_report = generate_html_report(data, report_date)
     
     # Output - save to file
     if output_file:
@@ -161,7 +198,7 @@ def run_agent(folder_name="Friday Monitoring", target_date=None, output_file=Non
         print(f"\n[5/5] Sending report to {recipient} via Outlook...")
         try:
             subject = f"📊 {day_name} Monitoring Summary ({report_date})"
-            send_email(recipient, subject, report)
+            send_email(recipient, subject, report, body_html=html_report)
             print(f"  ✅ Email sent successfully to {recipient}")
         except Exception as e:
             print(f"  ❌ Failed to send email: {e}")

@@ -1,0 +1,361 @@
+================================================================================
+  FRIDAY MONITORING SUMMARY AGENT - TECHNICAL DOCUMENTATION
+================================================================================
+
+  Version:  1.0
+  Platform: Windows + Microsoft Outlook (Desktop)
+  Language: Python 3.8+
+  Purpose:  Reads DBA monitoring emails from an Outlook folder, parses storage
+            metrics (tablespace / ASM diskgroup / mount point), categorizes
+            them by severity, builds a formatted report, saves it, and emails
+            it back.
+
+
+--------------------------------------------------------------------------------
+  1. TABLE OF CONTENTS
+--------------------------------------------------------------------------------
+
+  1.  Overview
+  2.  Architecture
+  3.  Data Flow
+  4.  Module Reference
+  5.  Data Models
+  6.  Severity Thresholds
+  7.  Command-Line Interface
+  8.  Configuration
+  9.  Output Format
+  10. Error Handling
+  11. Extending the Agent
+
+
+--------------------------------------------------------------------------------
+  2. OVERVIEW
+--------------------------------------------------------------------------------
+
+  The agent automates the weekly DBA monitoring summary. Instead of manually
+  reading several monitoring emails and compiling a status report, it:
+
+    Stage          Action
+    -----          ------
+    1. Connect     Attaches to the running Outlook app via Windows COM (MAPI).
+    2. Read        Pulls emails from a target folder, filtered by date/keywords.
+    3. Parse       Extracts tablespace, diskgroup, and mount-point usage (regex).
+    4. Categorize  Buckets each metric into Critical / Warning / Stable.
+    5. Report      Generates a formatted summary.
+    6. Deliver     Saves the report to disk AND emails it via Outlook.
+
+
+--------------------------------------------------------------------------------
+  3. ARCHITECTURE
+--------------------------------------------------------------------------------
+
+  +----------------------------------------------------------------------+
+  |                              main.py                                  |
+  |                      (Orchestrator / CLI)                            |
+  |                                                                      |
+  |   run_agent()  -->  list_outlook_folders()  -->  main()/argparse     |
+  +-------+-------------------+--------------------------+----------------+
+          |                   |                          |
+          v                   v                          v
+  +---------------+   +----------------+      +--------------------+
+  |outlook_reader |   | email_parser   |      | report_generator   |
+  |---------------|   |----------------|      |--------------------|
+  | connect       |   | parse_*_data   |      | generate_*_section |
+  | get_folder    |   | classify_email |      | categorize_by_     |
+  | get_*_emails  |   | parse_monitor- |      |   threshold        |
+  | send_email    |   |   ing_emails   |      | generate_full_     |
+  | markdown_html |   |                |      |   report           |
+  +-------+-------+   +----------------+      +--------------------+
+          |
+          v
+  +---------------+
+  |  MS Outlook   |
+  | (COM / MAPI)  |
+  +---------------+
+
+  Design principle: A thin orchestrator (main.py) coordinates three
+  single-responsibility modules - read, parse, report.
+
+
+--------------------------------------------------------------------------------
+  4. DATA FLOW
+--------------------------------------------------------------------------------
+
+  Outlook Folder
+       | (COM / MAPI)
+       v
+  outlook_reader  ---- email dicts ---->  email_parser
+                                               |
+                                       MonitoringData
+                                               |
+                                               v
+                                       report_generator
+                                               |
+              +--------------------------------+--------------------------------+
+              |                                |                                |
+              v                                v                                v
+      Save to .md file              markdown_to_html -> Outlook         Console output
+                                          (HTML email send)
+
+  Email dictionary shape (produced by outlook_reader):
+
+      {
+          "subject":       str,        # Email subject line
+          "body":          str,        # Plain-text body
+          "html_body":     str,        # HTML body (if available)
+          "received_time": datetime,   # Received timestamp
+          "sender":        str,        # Sender display name
+      }
+
+
+--------------------------------------------------------------------------------
+  5. MODULE REFERENCE
+--------------------------------------------------------------------------------
+
+  5.1 main.py - Orchestrator & CLI
+  --------------------------------
+    list_outlook_folders()
+        Prints all Outlook folders (and item counts) for troubleshooting.
+
+    run_agent(folder_name, target_date, output_file, days_back, send_to)
+        Executes the full 5-step workflow:
+        connect -> read -> parse -> generate -> deliver.
+
+    main()
+        Defines and parses CLI arguments, then dispatches to run_agent()
+        or list_outlook_folders().
+
+    Module constants:
+        RECIPIENT_EMAIL     - default report recipient (ajay.kumar@incedoinc.com)
+        MONITORING_KEYWORDS - subject keywords used to find monitoring emails
+
+
+  5.2 outlook_reader.py - Outlook I/O
+  -----------------------------------
+    connect_outlook()
+        Returns the MAPI namespace. Raises ConnectionError on failure.
+
+    get_folder(namespace, folder_name, parent_folder)
+        Locates a folder by name - first under Inbox, then recursively across
+        stores. Raises FileNotFoundError if missing.
+
+    get_today_emails(folder, date)
+        Returns emails received on a specific date (defaults to today).
+        Relies on descending sort for early exit.
+
+    get_friday_emails(folder)
+        Returns emails from the most recent Friday.
+
+    get_emails_by_subject(folder, subject_keywords, days_back)
+        Returns emails within days_back whose subject matches any keyword.
+
+    send_email(to_address, subject, body_markdown, body_html)
+        Creates and sends a MailItem via Outlook. Auto-converts Markdown -> HTML
+        when no HTML body is supplied.
+
+    markdown_to_html(md_text)
+        Converts the report into inline-styled HTML for clean Outlook rendering
+        (headers, bullets, bold, code, emoji callouts).
+
+    Note: GetDefaultFolder(6) resolves to the Inbox (olFolderInbox).
+          CreateItem(0) creates a MailItem (olMailItem).
+
+
+  5.3 email_parser.py - Content Extraction
+  ----------------------------------------
+    parse_tablespace_data(email_body)   -> list[TablespaceEntry]
+        Extracts tablespace usage via three regex patterns (pipe-separated,
+        named tablespaces, DB-context headers).
+
+    parse_diskgroup_data(email_body)    -> list[DiskgroupEntry]
+        Extracts ASM diskgroup usage (DATA, FRA, REDO, ARCH).
+
+    parse_mount_point_data(email_body)  -> list[MountPointEntry]
+        Extracts filesystem/mount usage from df-style or simplified rows.
+
+    classify_email(subject)             -> str
+        Classifies email type: tablespace, diskgroup, mount_point, general,
+        or unknown.
+
+    parse_monitoring_emails(emails)     -> MonitoringData
+        Iterates all emails, dispatches to the correct parser(s), aggregates.
+
+    Parsing context awareness: Parsers track a "current database/host" by
+    detecting header lines (e.g. "Database: CDBPRD1") or section headers
+    (CDB..., CTS..., HFA..., GG...) so each metric is attributed correctly.
+
+
+  5.4 report_generator.py - Report Building
+  -----------------------------------------
+    categorize_by_threshold(entries, critical, warning)
+        Splits entries into critical / warning / stable groups by used_percent.
+
+    generate_tablespace_section(tablespaces)
+        Builds Section 1 (grouped by database, with observations).
+
+    generate_diskgroup_section(diskgroups)
+        Builds Section 2 (ASM, with FRA vs DATA grouping).
+
+    generate_mount_point_section(mount_points, section_title, section_num)
+        Builds a mount-point section (reused for PROD and DEV/TST).
+
+    generate_alerts_section(data)
+        Builds the consolidated "Overall Key Alerts" block.
+
+    generate_health_summary(data)
+        Builds the final DEV/TST vs PROD health verdict.
+
+    generate_full_report(data, report_date)
+        Assembles the complete report from all sections.
+
+
+--------------------------------------------------------------------------------
+  6. DATA MODELS  (defined in email_parser.py as @dataclass objects)
+--------------------------------------------------------------------------------
+
+    TablespaceEntry:
+        database         : str
+        tablespace_name  : str
+        used_percent     : float
+        size_mb          : float = 0
+        free_mb          : float = 0
+
+    DiskgroupEntry:
+        database         : str
+        diskgroup_name   : str
+        used_percent     : float
+        total_gb         : float = 0
+        free_gb          : float = 0
+
+    MountPointEntry:
+        host             : str
+        mount_point      : str
+        used_percent     : float
+        total_gb         : float = 0
+        available_gb     : float = 0
+
+    MonitoringData:
+        tablespaces      : list  (list[TablespaceEntry])
+        diskgroups       : list  (list[DiskgroupEntry])
+        mount_points     : list  (list[MountPointEntry])
+        source_subject   : str
+        report_date      : str
+
+
+--------------------------------------------------------------------------------
+  7. SEVERITY THRESHOLDS
+--------------------------------------------------------------------------------
+
+    Metric             Critical     Warning        Stable
+    ------             --------     -------        ------
+    Tablespace         >= 90%       85% - 90%      < 85%
+    Diskgroup (ASM)    >= 90%       70% - 90%      < 70%
+    Mount Point        >= 80%       65% - 80%      < 65%
+
+    Thresholds are passed into categorize_by_threshold() from each section
+    generator and can be tuned there.
+
+
+--------------------------------------------------------------------------------
+  8. COMMAND-LINE INTERFACE
+--------------------------------------------------------------------------------
+
+    Usage:  python main.py [options]
+
+    Flag             Alias   Default                Description
+    ----             -----   -------                -----------
+    --folder         -f      "Friday Monitoring"    Outlook folder to read from.
+    --date           -d      auto-detect            Target date (YYYY-MM-DD).
+    --output         -o      auto-named .md         Output file path.
+    --days-back      (none)  7                      Days to look back (keyword).
+    --list-folders   (none)  off                    List Outlook folders & exit.
+    --send-to        -s      RECIPIENT_EMAIL        Recipient email address.
+    --no-email       (none)  off                    Skip send; save + print only.
+
+    Examples:
+        python main.py                                 # today, default, emailed
+        python main.py --folder "DBA Monitoring"       # custom folder
+        python main.py --date 2026-06-05               # specific date
+        python main.py --output "C:\Reports\report.md" # custom output path
+        python main.py --days-back 14                  # wider lookback window
+        python main.py --no-email                      # local-only run
+        python main.py --list-folders                  # troubleshoot folders
+
+
+--------------------------------------------------------------------------------
+  9. CONFIGURATION
+--------------------------------------------------------------------------------
+
+    Setting                Location               Purpose
+    -------                --------               -------
+    RECIPIENT_EMAIL        main.py                Default email recipient.
+    MONITORING_KEYWORDS    main.py                Subject keywords for discovery.
+    Threshold values       report_generator.py    Critical/warning cutoffs.
+    Regex patterns         email_parser.py        Match your email formats.
+    Dependencies           requirements.txt       pywin32, beautifulsoup4,
+                                                   html2text.
+
+
+--------------------------------------------------------------------------------
+  10. OUTPUT FORMAT
+--------------------------------------------------------------------------------
+
+    The generated report (monitoring_summary_YYYYMMDD.md) follows this layout:
+
+        # <Day> Monitoring Summary (<date>)
+        ## 1. Tablespace Status
+            ### High Utilization (Critical/Watch)
+            ### Moderate Utilization (85-90%)
+            ### Stable
+            -> Observation
+        ## 2. Diskgroup (ASM) Status
+            ### Critical / Moderate / Healthy
+            -> Observation
+        ## 3. PROD Mount Point Status
+        ## 4. TST & DEV Mount Point Status   (if DEV/TST data present)
+        # Overall Key Alerts (Today)
+        # Final Health Summary
+
+    The same content is delivered three ways: saved file, Outlook email (HTML),
+    and console print.
+
+
+--------------------------------------------------------------------------------
+  11. ERROR HANDLING
+--------------------------------------------------------------------------------
+
+    Scenario                       Behavior
+    --------                       --------
+    Outlook not running / COM      connect_outlook() raises ConnectionError;
+      failure                      run_agent() exits with guidance.
+    Folder not found               get_folder() raises FileNotFoundError;
+                                   suggests --list-folders.
+    No emails found                Prints tips (check folder, increase
+                                   --days-back) and exits cleanly.
+    Malformed email row            Parser skips the row (try/except continue)
+                                   and continues.
+    Email send failure             Logged; the report remains saved to disk.
+
+
+--------------------------------------------------------------------------------
+  12. EXTENDING THE AGENT
+--------------------------------------------------------------------------------
+
+    Goal                  How
+    ----                  ---
+    New metric type       Add a @dataclass, a parse_<type>_data() function,
+                          wire it into parse_monitoring_emails(), and add a
+                          generate_<type>_section().
+    New email format      Add/adjust regex patterns in the relevant
+                          parse_*_data() function.
+    Change thresholds     Edit the critical/warning args in
+                          generate_*_section().
+    New keywords          Append to MONITORING_KEYWORDS in main.py.
+    Different recipient    Use --send-to or change RECIPIENT_EMAIL.
+    Scheduling            Use Windows Task Scheduler / PowerShell
+                          Register-ScheduledTask (see README.md).
+
+
+================================================================================
+  End of technical documentation for the Friday Monitoring Summary Agent.
+================================================================================

@@ -1,0 +1,1168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Friday Monitoring Dashboard — Technical Documentation</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+  :root {
+    --navy:     #1a2744;
+    --blue:     #1e5fad;
+    --accent:   #2eaadc;
+    --prod:     #c0392b;
+    --qa:       #16a085;
+    --tst:      #8e44ad;
+    --dev:      #2980b9;
+    --ok:       #27ae60;
+    --warn:     #e67e22;
+    --crit:     #c0392b;
+    --bg:       #f5f7fa;
+    --card:     #ffffff;
+    --border:   #dde3ed;
+    --text:     #1e2a3a;
+    --muted:    #6b7a99;
+    --code-bg:  #1e2a3a;
+    --code-fg:  #a8d8ea;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 14px;
+    line-height: 1.7;
+  }
+
+  /* ── HERO ── */
+  .hero {
+    background: linear-gradient(135deg, var(--navy) 0%, #1e3a6e 60%, #0f2540 100%);
+    padding: 60px 40px 50px;
+    color: #fff;
+    position: relative;
+    overflow: hidden;
+  }
+  .hero::before {
+    content: '';
+    position: absolute; inset: 0;
+    background: radial-gradient(ellipse at 80% 50%, rgba(46,170,220,0.18) 0%, transparent 70%);
+    pointer-events: none;
+  }
+  .hero-grid {
+    max-width: 1100px; margin: 0 auto;
+    display: grid; grid-template-columns: 1fr auto; gap: 40px; align-items: center;
+  }
+  .hero-tag {
+    font-size: 11px; font-weight: 600; letter-spacing: 2px; text-transform: uppercase;
+    color: var(--accent); margin-bottom: 14px;
+  }
+  .hero h1 {
+    font-size: 36px; font-weight: 700; line-height: 1.2;
+    margin-bottom: 16px;
+  }
+  .hero h1 span { color: var(--accent); }
+  .hero-sub {
+    font-size: 15px; color: #94aed4; max-width: 560px; line-height: 1.7;
+  }
+  .hero-meta {
+    margin-top: 28px; display: flex; gap: 24px; flex-wrap: wrap;
+  }
+  .hero-badge {
+    background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 20px; padding: 6px 16px; font-size: 12px; color: #c8d8f0;
+  }
+  .hero-badge b { color: #fff; }
+
+  .hero-stats {
+    display: flex; flex-direction: column; gap: 12px;
+  }
+  .stat-card {
+    background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 10px; padding: 14px 20px; text-align: center; min-width: 120px;
+  }
+  .stat-card .num { font-size: 28px; font-weight: 700; color: var(--accent); }
+  .stat-card .lbl { font-size: 11px; color: #94aed4; text-transform: uppercase; letter-spacing: 1px; }
+
+  /* ── LAYOUT ── */
+  .layout { max-width: 1100px; margin: 0 auto; padding: 40px 24px; display: grid; grid-template-columns: 240px 1fr; gap: 32px; align-items: start; }
+
+  /* ── SIDEBAR ── */
+  .sidebar { position: sticky; top: 24px; }
+  .toc {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 10px; overflow: hidden;
+  }
+  .toc-head {
+    background: var(--navy); color: #fff;
+    padding: 14px 18px; font-size: 12px; font-weight: 600;
+    letter-spacing: 1.5px; text-transform: uppercase;
+  }
+  .toc a {
+    display: block; padding: 9px 18px;
+    font-size: 12.5px; color: var(--muted); text-decoration: none;
+    border-bottom: 1px solid var(--border); transition: all 0.15s;
+  }
+  .toc a:hover { background: #f0f4ff; color: var(--blue); padding-left: 24px; }
+  .toc a:last-child { border-bottom: none; }
+  .toc a .num { font-weight: 700; color: var(--accent); margin-right: 6px; }
+
+  /* ── CONTENT ── */
+  .content { min-width: 0; }
+
+  .section {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 12px; margin-bottom: 28px; overflow: hidden;
+  }
+  .section-head {
+    background: linear-gradient(90deg, var(--navy) 0%, #1e3a6e 100%);
+    padding: 16px 24px; display: flex; align-items: center; gap: 12px;
+  }
+  .section-num {
+    background: var(--accent); color: #fff;
+    width: 28px; height: 28px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 700; flex-shrink: 0;
+  }
+  .section-head h2 { font-size: 16px; font-weight: 600; color: #fff; }
+  .section-body { padding: 24px; }
+
+  h3 { font-size: 13.5px; font-weight: 600; color: var(--navy); margin: 20px 0 10px; border-left: 3px solid var(--accent); padding-left: 10px; }
+  h3:first-child { margin-top: 0; }
+  p { margin-bottom: 12px; color: #374151; }
+
+  /* ── CODE ── */
+  pre, code {
+    font-family: 'JetBrains Mono', 'Courier New', monospace;
+  }
+  pre {
+    background: var(--code-bg); color: #e2e8f0;
+    border-radius: 8px; padding: 18px 20px;
+    font-size: 12.5px; line-height: 1.8; overflow-x: auto;
+    margin: 12px 0;
+  }
+  code {
+    background: #eef2ff; color: #3730a3;
+    padding: 2px 6px; border-radius: 4px; font-size: 12px;
+  }
+  pre code { background: none; color: inherit; padding: 0; }
+  .kw  { color: #7dd3fc; }
+  .fn  { color: #a5f3fc; }
+  .str { color: #86efac; }
+  .cm  { color: #64748b; font-style: italic; }
+  .num-c { color: #fca5a5; }
+
+  /* ── TABLES ── */
+  table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 12px 0; }
+  thead tr { background: var(--navy); color: #fff; }
+  thead th { padding: 10px 14px; text-align: left; font-weight: 600; font-size: 12px; }
+  tbody tr:nth-child(even) { background: #f8faff; }
+  tbody tr:hover { background: #eef2ff; }
+  td { padding: 9px 14px; border-bottom: 1px solid var(--border); }
+  td code { background: #eef2ff; }
+
+  /* ── BADGES ── */
+  .badge {
+    display: inline-block; padding: 3px 10px; border-radius: 12px;
+    font-size: 11px; font-weight: 600;
+  }
+  .badge-prod  { background: #fde8e8; color: var(--prod); }
+  .badge-qa    { background: #d5f5f0; color: var(--qa); }
+  .badge-tst   { background: #ede8f7; color: var(--tst); }
+  .badge-dev   { background: #dbeafe; color: var(--dev); }
+  .badge-crit  { background: #fee2e2; color: var(--crit); }
+  .badge-warn  { background: #fff3e0; color: var(--warn); }
+  .badge-ok    { background: #d1fae5; color: var(--ok); }
+  .badge-blue  { background: #dbeafe; color: #1d4ed8; }
+
+  /* ── CALLOUT ── */
+  .callout {
+    border-radius: 8px; padding: 14px 18px; margin: 14px 0;
+    display: flex; gap: 12px; align-items: flex-start;
+  }
+  .callout-info  { background: #eff6ff; border-left: 4px solid #3b82f6; }
+  .callout-warn  { background: #fffbeb; border-left: 4px solid #f59e0b; }
+  .callout-ok    { background: #f0fdf4; border-left: 4px solid #22c55e; }
+  .callout-icon  { font-size: 18px; line-height: 1; flex-shrink: 0; margin-top: 1px; }
+  .callout-text  { font-size: 13px; color: #374151; }
+  .callout-text b { color: var(--navy); }
+
+  /* ── FUNC CARD ── */
+  .func-card {
+    border: 1px solid var(--border); border-radius: 8px;
+    margin: 14px 0; overflow: hidden;
+  }
+  .func-head {
+    background: #f1f5f9; padding: 10px 16px;
+    display: flex; align-items: center; gap: 10px;
+    border-bottom: 1px solid var(--border);
+  }
+  .func-name { font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 600; color: var(--navy); }
+  .func-body { padding: 14px 16px; font-size: 13px; }
+  .func-row  { display: grid; grid-template-columns: 110px 1fr; gap: 8px; margin-bottom: 6px; align-items: baseline; }
+  .func-label { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+
+  /* ── THRESHOLD TABLE ── */
+  .thresh-table { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin: 14px 0; }
+  .thresh-card { border-radius: 8px; padding: 16px; text-align: center; }
+  .thresh-ts { background: #fef9ec; border: 1px solid #fde68a; }
+  .thresh-dg { background: #f0f4ff; border: 1px solid #c7d2fe; }
+  .thresh-mp { background: #f0fdf4; border: 1px solid #bbf7d0; }
+  .thresh-card .label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; }
+  .thresh-ts .label { color: #92400e; }
+  .thresh-dg .label { color: #3730a3; }
+  .thresh-mp .label { color: #065f46; }
+  .thresh-row { display: flex; justify-content: space-between; align-items: center; margin: 6px 0; font-size: 12px; }
+  .thresh-val { font-weight: 700; font-size: 15px; }
+
+  /* ── FILE TREE ── */
+  .file-tree {
+    background: var(--code-bg); border-radius: 8px;
+    padding: 18px 20px; font-family: 'JetBrains Mono', monospace;
+    font-size: 12.5px; line-height: 2; color: #e2e8f0;
+  }
+  .file-tree .dir  { color: #7dd3fc; font-weight: 600; }
+  .file-tree .main { color: #fde68a; font-weight: 600; }
+  .file-tree .dep  { color: #86efac; }
+  .file-tree .out  { color: #f9a8d4; }
+  .file-tree .cm   { color: #64748b; font-style: italic; }
+
+  /* ── ENV PILLS ── */
+  .env-pills { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0; }
+  .env-pill {
+    padding: 8px 18px; border-radius: 20px; font-size: 12px; font-weight: 600;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .env-dot { width: 8px; height: 8px; border-radius: 50%; }
+
+  /* ── STEP PIPELINE ── */
+  .pipeline { margin: 16px 0; }
+  .pipeline-step {
+    display: flex; gap: 16px; align-items: flex-start; margin-bottom: 4px;
+  }
+  .step-connector { display: flex; flex-direction: column; align-items: center; width: 36px; flex-shrink: 0; }
+  .step-circle {
+    width: 36px; height: 36px; border-radius: 50%;
+    background: var(--blue); color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 700; flex-shrink: 0;
+  }
+  .step-line { width: 2px; background: var(--border); flex: 1; min-height: 20px; margin: 3px 0; }
+  .step-content { padding-top: 6px; padding-bottom: 16px; flex: 1; }
+  .step-title { font-weight: 600; color: var(--navy); font-size: 13.5px; }
+  .step-desc  { font-size: 12.5px; color: var(--muted); margin-top: 3px; }
+
+  /* ── ERROR TABLE ── */
+  .error-row td:first-child { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #b91c1c; }
+  .exit-0 { color: var(--ok); font-weight: 700; }
+  .exit-1 { color: var(--crit); font-weight: 700; }
+
+  /* ── FLOW DIAGRAM (SVG-based) ── */
+  .diagram-wrap { background: #f8faff; border: 1px solid var(--border); border-radius: 10px; padding: 20px; margin: 14px 0; overflow-x: auto; }
+
+  hr.section-divider { border: none; border-top: 1px dashed var(--border); margin: 18px 0; }
+
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .info-block { background: #f8faff; border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+  .info-block .ib-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-bottom: 8px; }
+  .info-block .ib-val { font-size: 13px; color: var(--navy); }
+
+  @media (max-width: 820px) {
+    .layout { grid-template-columns: 1fr; }
+    .sidebar { position: static; }
+    .hero-grid { grid-template-columns: 1fr; }
+    .hero-stats { flex-direction: row; }
+    .two-col { grid-template-columns: 1fr; }
+    .thresh-table { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════ HERO ═══════════════════════════ -->
+<div class="hero">
+  <div class="hero-grid">
+    <div>
+      <div class="hero-tag">Technical Documentation</div>
+      <h1>Friday Monitoring<br><span>Dashboard</span></h1>
+      <p class="hero-sub">
+        Automated Oracle database and infrastructure health reporting tool.
+        Connects to Microsoft Outlook, parses monitoring emails, and generates
+        a colour-coded HTML dashboard with instant email delivery.
+      </p>
+      <div class="hero-meta">
+        <span class="hero-badge"><b>Script:</b> dashboard.py</span>
+        <span class="hero-badge"><b>Language:</b> Python 3.8+</span>
+        <span class="hero-badge"><b>Platform:</b> Windows + Outlook</span>
+        <span class="hero-badge"><b>Version:</b> 1.0</span>
+        <span class="hero-badge"><b>Author:</b> Incedo Inc.</span>
+      </div>
+    </div>
+    <div class="hero-stats">
+      <div class="stat-card"><div class="num">3</div><div class="lbl">Resource Types</div></div>
+      <div class="stat-card"><div class="num">14</div><div class="lbl">Functions</div></div>
+      <div class="stat-card"><div class="num">8</div><div class="lbl">Pipeline Steps</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════ LAYOUT ════════════════════════ -->
+<div class="layout">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <nav class="toc">
+      <div class="toc-head">📋 Contents</div>
+      <a href="#s1"><span class="num">1</span> System Architecture</a>
+      <a href="#s2"><span class="num">2</span> File Structure</a>
+      <a href="#s3"><span class="num">3</span> Installation</a>
+      <a href="#s4"><span class="num">4</span> Configuration</a>
+      <a href="#s5"><span class="num">5</span> Function Reference</a>
+      <a href="#s6"><span class="num">6</span> Data Flow</a>
+      <a href="#s7"><span class="num">7</span> HTML Engine</a>
+      <a href="#s8"><span class="num">8</span> Alert Logic</a>
+      <a href="#s9"><span class="num">9</span> Env Classification</a>
+      <a href="#s10"><span class="num">10</span> Deduplication</a>
+      <a href="#s11"><span class="num">11</span> Email Delivery</a>
+      <a href="#s12"><span class="num">12</span> CLI Arguments</a>
+      <a href="#s13"><span class="num">13</span> Module Contract</a>
+      <a href="#s14"><span class="num">14</span> Error Handling</a>
+      <a href="#s15"><span class="num">15</span> Extensibility</a>
+      <a href="#s16"><span class="num">16</span> Limitations</a>
+      <a href="#s17"><span class="num">17</span> Glossary</a>
+    </nav>
+  </aside>
+
+  <!-- CONTENT -->
+  <main class="content">
+
+    <!-- ── 1. SYSTEM ARCHITECTURE ── -->
+    <div class="section" id="s1">
+      <div class="section-head">
+        <div class="section-num">1</div>
+        <h2>System Architecture</h2>
+      </div>
+      <div class="section-body">
+        <p>The tool follows a <strong>linear pipeline architecture</strong>. All processing is local — no external APIs, cloud services, or databases are used.</p>
+
+        <!-- Architecture SVG -->
+        <div class="diagram-wrap">
+          <svg viewBox="0 0 820 340" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:Inter,sans-serif;">
+            <!-- Background -->
+            <rect width="820" height="340" fill="#f8faff" rx="8"/>
+
+            <!-- Outlook Box -->
+            <rect x="20" y="120" width="140" height="70" rx="8" fill="#1a2744" stroke="#2eaadc" stroke-width="1.5"/>
+            <text x="90" y="148" text-anchor="middle" fill="#2eaadc" font-size="11" font-weight="700">📧 OUTLOOK</text>
+            <text x="90" y="165" text-anchor="middle" fill="#94aed4" font-size="10">Friday Monitoring</text>
+            <text x="90" y="180" text-anchor="middle" fill="#94aed4" font-size="10">Folder</text>
+
+            <!-- Arrow 1 -->
+            <line x1="161" y1="155" x2="192" y2="155" stroke="#2eaadc" stroke-width="2" marker-end="url(#arr)"/>
+            <text x="176" y="148" text-anchor="middle" fill="#6b7a99" font-size="9">COM</text>
+
+            <!-- outlook_reader box -->
+            <rect x="193" y="110" width="150" height="90" rx="8" fill="#fff" stroke="#dde3ed" stroke-width="1.5"/>
+            <text x="268" y="132" text-anchor="middle" fill="#1a2744" font-size="10" font-weight="700">outlook_reader.py</text>
+            <text x="268" y="150" text-anchor="middle" fill="#6b7a99" font-size="9">connect_outlook()</text>
+            <text x="268" y="163" text-anchor="middle" fill="#6b7a99" font-size="9">get_folder()</text>
+            <text x="268" y="176" text-anchor="middle" fill="#6b7a99" font-size="9">get_emails_by_subject()</text>
+
+            <!-- Arrow 2 -->
+            <line x1="344" y1="155" x2="375" y2="155" stroke="#2eaadc" stroke-width="2" marker-end="url(#arr)"/>
+            <text x="360" y="148" text-anchor="middle" fill="#6b7a99" font-size="9">dicts</text>
+
+            <!-- email_parser box -->
+            <rect x="376" y="110" width="150" height="90" rx="8" fill="#fff" stroke="#dde3ed" stroke-width="1.5"/>
+            <text x="451" y="132" text-anchor="middle" fill="#1a2744" font-size="10" font-weight="700">email_parser.py</text>
+            <text x="451" y="150" text-anchor="middle" fill="#6b7a99" font-size="9">parse_monitoring</text>
+            <text x="451" y="163" text-anchor="middle" fill="#6b7a99" font-size="9">_emails()</text>
+            <text x="451" y="182" text-anchor="middle" fill="#16a085" font-size="9" font-weight="600">→ MonitoringData</text>
+
+            <!-- Arrow 3 -->
+            <line x1="527" y1="155" x2="558" y2="155" stroke="#2eaadc" stroke-width="2" marker-end="url(#arr)"/>
+            <text x="543" y="148" text-anchor="middle" fill="#6b7a99" font-size="9">obj</text>
+
+            <!-- dashboard box -->
+            <rect x="559" y="95" width="150" height="120" rx="8" fill="#1e3a6e" stroke="#2eaadc" stroke-width="1.5"/>
+            <text x="634" y="118" text-anchor="middle" fill="#2eaadc" font-size="10" font-weight="700">dashboard.py</text>
+            <text x="634" y="136" text-anchor="middle" fill="#94aed4" font-size="9">build_html()</text>
+            <text x="634" y="150" text-anchor="middle" fill="#94aed4" font-size="9">_status() / _bar()</text>
+            <text x="634" y="164" text-anchor="middle" fill="#94aed4" font-size="9">_dedupe()</text>
+            <text x="634" y="178" text-anchor="middle" fill="#94aed4" font-size="9">_send_with_attachment()</text>
+            <text x="634" y="200" text-anchor="middle" fill="#fde68a" font-size="9" font-weight="600">run() / main()</text>
+
+            <!-- Output arrows (down) -->
+            <!-- File -->
+            <line x1="600" y1="216" x2="570" y2="260" stroke="#86efac" stroke-width="1.5" marker-end="url(#arrok)"/>
+            <rect x="510" y="262" width="120" height="40" rx="6" fill="#f0fdf4" stroke="#86efac" stroke-width="1.2"/>
+            <text x="570" y="279" text-anchor="middle" fill="#065f46" font-size="10" font-weight="600">💾 HTML File</text>
+            <text x="570" y="293" text-anchor="middle" fill="#6b7a99" font-size="9">dashboard_YYYYMMDD.html</text>
+
+            <!-- Browser -->
+            <line x1="634" y1="216" x2="634" y2="260" stroke="#86efac" stroke-width="1.5" marker-end="url(#arrok)"/>
+            <rect x="584" y="262" width="100" height="40" rx="6" fill="#f0fdf4" stroke="#86efac" stroke-width="1.2"/>
+            <text x="634" y="279" text-anchor="middle" fill="#065f46" font-size="10" font-weight="600">🌐 Browser</text>
+            <text x="634" y="293" text-anchor="middle" fill="#6b7a99" font-size="9">Auto-opened</text>
+
+            <!-- Email -->
+            <line x1="668" y1="216" x2="698" y2="260" stroke="#86efac" stroke-width="1.5" marker-end="url(#arrok)"/>
+            <rect x="649" y="262" width="120" height="40" rx="6" fill="#f0fdf4" stroke="#86efac" stroke-width="1.2"/>
+            <text x="709" y="279" text-anchor="middle" fill="#065f46" font-size="10" font-weight="600">📧 Email</text>
+            <text x="709" y="293" text-anchor="middle" fill="#6b7a99" font-size="9">HTML body + attachment</text>
+
+            <!-- Label: Outputs -->
+            <text x="634" y="315" text-anchor="middle" fill="#6b7a99" font-size="10" font-style="italic">Three output channels</text>
+
+            <!-- Top label -->
+            <text x="410" y="30" text-anchor="middle" fill="#1a2744" font-size="13" font-weight="700">System Architecture — Data Pipeline</text>
+            <text x="410" y="50" text-anchor="middle" fill="#6b7a99" font-size="10">Local execution only · No external API · No cloud dependency</text>
+
+            <!-- Flow label -->
+            <text x="268" y="30" text-anchor="middle" fill="#6b7a99" font-size="10">Email Ingestion Layer</text>
+            <line x1="193" y1="35" x2="343" y2="35" stroke="#dde3ed" stroke-width="1" stroke-dasharray="4,3"/>
+            <text x="451" y="30" text-anchor="middle" fill="#6b7a99" font-size="10">Parse Layer</text>
+            <line x1="376" y1="35" x2="526" y2="35" stroke="#dde3ed" stroke-width="1" stroke-dasharray="4,3"/>
+            <text x="634" y="30" text-anchor="middle" fill="#6b7a99" font-size="10">Render &amp; Deliver</text>
+            <line x1="559" y1="35" x2="709" y2="35" stroke="#dde3ed" stroke-width="1" stroke-dasharray="4,3"/>
+
+            <!-- Arrow marker -->
+            <defs>
+              <marker id="arr" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+                <path d="M0,0 L0,6 L7,3 z" fill="#2eaadc"/>
+              </marker>
+              <marker id="arrok" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+                <path d="M0,0 L0,6 L7,3 z" fill="#86efac"/>
+              </marker>
+            </defs>
+          </svg>
+        </div>
+
+        <div class="callout callout-info">
+          <div class="callout-icon">ℹ️</div>
+          <div class="callout-text"><b>Fully local execution.</b> The tool reads from Outlook on the local machine and sends via the local Outlook profile. No data leaves the corporate environment through any external service.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── 2. FILE STRUCTURE ── -->
+    <div class="section" id="s2">
+      <div class="section-head">
+        <div class="section-num">2</div>
+        <h2>File Structure &amp; Module Dependencies</h2>
+      </div>
+      <div class="section-body">
+        <div class="file-tree">
+<span class="dir">📁 monitoring-tool/</span>
+│
+├── <span class="main">dashboard.py</span>          <span class="cm"># ★ Main script — orchestration, HTML engine, email</span>
+├── <span class="dep">outlook_reader.py</span>     <span class="cm"># Outlook COM integration (connect, read, send)</span>
+├── <span class="dep">email_parser.py</span>       <span class="cm"># Email body parser → MonitoringData objects</span>
+│
+└── <span class="out">monitoring_dashboard_YYYYMMDD.html</span>   <span class="cm"># Auto-generated output</span>
+        </div>
+
+        <h3>Python Standard Library Imports</h3>
+        <div class="two-col">
+          <div class="info-block">
+            <div class="ib-label">Used In dashboard.py</div>
+            <div class="ib-val">
+              <code>argparse</code> &nbsp; <code>os</code> &nbsp; <code>re</code> &nbsp; <code>sys</code><br>
+              <code>webbrowser</code> &nbsp; <code>collections.defaultdict</code> &nbsp; <code>datetime</code>
+            </div>
+          </div>
+          <div class="info-block">
+            <div class="ib-label">Third-Party (pip install)</div>
+            <div class="ib-val">
+              <code>win32com.client</code> — from <strong>pywin32</strong><br>
+              Used exclusively in <code>_send_with_attachment()</code>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── 3. INSTALLATION ── -->
+    <div class="section" id="s3">
+      <div class="section-head">
+        <div class="section-num">3</div>
+        <h2>Environment &amp; Installation Requirements</h2>
+      </div>
+      <div class="section-body">
+        <div class="two-col">
+          <div class="info-block">
+            <div class="ib-label">Operating System</div>
+            <div class="ib-val">Windows 10 / Windows 11 only<br><span style="color:var(--muted);font-size:12px;">COM/MAPI is Windows-exclusive</span></div>
+          </div>
+          <div class="info-block">
+            <div class="ib-label">Python Version</div>
+            <div class="ib-val">Python 3.8 or above</div>
+          </div>
+          <div class="info-block">
+            <div class="ib-label">Microsoft Outlook</div>
+            <div class="ib-val">Must be installed, configured,<br>and <strong>running</strong> when script executes</div>
+          </div>
+          <div class="info-block">
+            <div class="ib-label">Required Package</div>
+            <div class="ib-val"><code>pip install pywin32</code></div>
+          </div>
+        </div>
+
+        <h3>Installation Steps</h3>
+        <pre><span class="cm"># Step 1: Install pywin32</span>
+<span class="kw">pip</span> install pywin32
+
+<span class="cm"># Step 2: Run post-install script (once only)</span>
+<span class="kw">python</span> -m pywin32_postinstall -install
+
+<span class="cm"># Step 3: Verify Outlook COM access</span>
+<span class="kw">python</span> -c <span class="str">"import win32com.client; o=win32com.client.Dispatch('Outlook.Application'); print(o.Name)"</span>
+<span class="cm"># Expected output: Microsoft Outlook</span></pre>
+      </div>
+    </div>
+
+    <!-- ── 4. CONFIGURATION ── -->
+    <div class="section" id="s4">
+      <div class="section-head">
+        <div class="section-num">4</div>
+        <h2>Configuration Constants</h2>
+      </div>
+      <div class="section-body">
+        <p>All configuration is defined at the top of <code>dashboard.py</code> (lines 46–57):</p>
+        <pre><span class="cm"># ── config ────────────────────────────────────────────</span>
+DEFAULT_FOLDER   = <span class="str">"Friday Monitoring"</span>
+RECIPIENT_EMAIL  = <span class="str">"YOUR_EMAIL@domain.com"</span>   <span class="cm"># ← replace</span>
+MONITORING_KEYWORDS = [
+    <span class="str">"tablespace"</span>, <span class="str">"diskgroup"</span>, <span class="str">"mount point"</span>, <span class="str">"monitoring"</span>,
+    <span class="str">"disk"</span>, <span class="str">"ASM"</span>, <span class="str">"filesystem"</span>, <span class="str">"Thursday-Friday"</span>, <span class="str">"Friday"</span>,
+]
+<span class="cm"># severity thresholds</span>
+TS_CRIT, TS_WARN = <span class="num-c">90</span>, <span class="num-c">85</span>
+DG_CRIT, DG_WARN = <span class="num-c">90</span>, <span class="num-c">70</span>
+MP_CRIT, MP_WARN = <span class="num-c">80</span>, <span class="num-c">65</span></pre>
+
+        <h3>Alert Thresholds</h3>
+        <div class="thresh-table">
+          <div class="thresh-card thresh-ts">
+            <div class="label">🗄 Tablespace</div>
+            <div class="thresh-row"><span>CRITICAL</span><span class="thresh-val" style="color:var(--crit)">≥ 90%</span></div>
+            <div class="thresh-row"><span>WARNING</span><span class="thresh-val" style="color:var(--warn)">≥ 85%</span></div>
+            <div class="thresh-row"><span>OK</span><span class="thresh-val" style="color:var(--ok)">&lt; 85%</span></div>
+          </div>
+          <div class="thresh-card thresh-dg">
+            <div class="label">💾 Diskgroup</div>
+            <div class="thresh-row"><span>CRITICAL</span><span class="thresh-val" style="color:var(--crit)">≥ 90%</span></div>
+            <div class="thresh-row"><span>WARNING</span><span class="thresh-val" style="color:var(--warn)">≥ 70%</span></div>
+            <div class="thresh-row"><span>OK</span><span class="thresh-val" style="color:var(--ok)">&lt; 70%</span></div>
+          </div>
+          <div class="thresh-card thresh-mp">
+            <div class="label">🖥 Mount Point</div>
+            <div class="thresh-row"><span>CRITICAL</span><span class="thresh-val" style="color:var(--crit)">≥ 80%</span></div>
+            <div class="thresh-row"><span>WARNING</span><span class="thresh-val" style="color:var(--warn)">≥ 65%</span></div>
+            <div class="thresh-row"><span>OK</span><span class="thresh-val" style="color:var(--ok)">&lt; 65%</span></div>
+          </div>
+        </div>
+
+        <h3>Environment Colour Map</h3>
+        <div class="env-pills">
+          <div class="env-pill" style="background:#fde8e8;color:#c0392b;border:1px solid #f5b7b1;"><span class="env-dot" style="background:#c0392b;"></span>PROD — #c0392b</div>
+          <div class="env-pill" style="background:#d5f5f0;color:#16a085;border:1px solid #a9dfbf;"><span class="env-dot" style="background:#16a085;"></span>QA/QTS — #16a085</div>
+          <div class="env-pill" style="background:#ede8f7;color:#8e44ad;border:1px solid #d7bde2;"><span class="env-dot" style="background:#8e44ad;"></span>TST — #8e44ad</div>
+          <div class="env-pill" style="background:#dbeafe;color:#2980b9;border:1px solid #aed6f1;"><span class="env-dot" style="background:#2980b9;"></span>DEV — #2980b9</div>
+          <div class="env-pill" style="background:#f0f0f0;color:#34495e;border:1px solid #ccd1d9;"><span class="env-dot" style="background:#34495e;"></span>OTHER — #34495e</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── 5. FUNCTION REFERENCE ── -->
+    <div class="section" id="s5">
+      <div class="section-head">
+        <div class="section-num">5</div>
+        <h2>Complete Function Reference</h2>
+      </div>
+      <div class="section-body">
+
+        <div class="func-card">
+          <div class="func-head"><span class="badge badge-blue">helper</span><span class="func-name">_env(name: str) → str</span></div>
+          <div class="func-body">
+            <div class="func-row"><span class="func-label">Purpose</span><span>Classifies a database or host name into an environment label via substring matching.</span></div>
+            <div class="func-row"><span class="func-label">Returns</span><span>One of: <code>PROD</code> <code>QA/QTS</code> <code>TST</code> <code>DEV</code> <code>OTHER</code></span></div>
+            <div class="func-row"><span class="func-label">Example</span><span><code>_env("CTSPRD01") → "PROD"</code> &nbsp; <code>_env("QADB02") → "QA/QTS"</code></span></div>
+          </div>
+        </div>
+
+        <div class="func-card">
+          <div class="func-head"><span class="badge badge-blue">helper</span><span class="func-name">_status(pct, crit, warn) → tuple(str, str, str)</span></div>
+          <div class="func-body">
+            <div class="func-row"><span class="func-label">Purpose</span><span>Returns severity label and display colours for a given usage percentage.</span></div>
+            <div class="func-row"><span class="func-label">Returns</span><span><code>(status_label, text_colour_hex, bg_colour_hex)</code></span></div>
+            <div class="func-row"><span class="func-label">Logic</span><span>
+              <span class="badge badge-crit">CRITICAL</span> if pct ≥ crit &nbsp;
+              <span class="badge badge-warn">WARNING</span> if pct ≥ warn &nbsp;
+              <span class="badge badge-ok">OK</span> otherwise
+            </span></div>
+          </div>
+        </div>
+
+        <div class="func-card">
+          <div class="func-head"><span class="badge badge-blue">helper</span><span class="func-name">_bar(pct, crit, warn) → str</span></div>
+          <div class="func-body">
+            <div class="func-row"><span class="func-label">Purpose</span><span>Generates a 100px wide × 8px tall inline HTML progress bar. Fill colour from <code>_status()</code>. Width clamped to [2, 100].</span></div>
+          </div>
+        </div>
+
+        <div class="func-card">
+          <div class="func-head"><span class="badge badge-blue">helper</span><span class="func-name">_dedupe(entries, key) → list</span></div>
+          <div class="func-body">
+            <div class="func-row"><span class="func-label">Purpose</span><span>Removes duplicate monitoring entries. Keeps highest <code>used_percent</code> for each unique key.</span></div>
+            <div class="func-row"><span class="func-label">Key examples</span><span>
+              Tablespaces: <code>lambda e: (e.database, e.tablespace_name)</code><br>
+              Diskgroups: <code>lambda e: (e.database, e.diskgroup_name)</code><br>
+              Mount Points: <code>lambda e: (e.host, e.mount_point)</code>
+            </span></div>
+          </div>
+        </div>
+
+        <div class="func-card">
+          <div class="func-head"><span class="badge badge-blue">helper</span><span class="func-name">_normalize(subject: str) → str</span></div>
+          <div class="func-body">
+            <div class="func-row"><span class="func-label">Purpose</span><span>Strips dates from email subjects for deduplication comparison.</span></div>
+            <div class="func-row"><span class="func-label">Regex</span><span>
+              Removes <code>DD-Mon-YYYY</code> and <code>YYYY-MM-DD</code> patterns, collapses separators, lowercases.
+            </span></div>
+            <div class="func-row"><span class="func-label">Example</span><span><code>"Tablespace Monitoring 06-Jun-2026" → "tablespace monitoring"</code></span></div>
+          </div>
+        </div>
+
+        <div class="func-card">
+          <div class="func-head"><span class="badge" style="background:#fef9ec;color:#92400e;">core</span><span class="func-name">build_html(data, report_date, emails_found) → str</span></div>
+          <div class="func-body">
+            <div class="func-row"><span class="func-label">Purpose</span><span>Core HTML generation function. Produces the complete dashboard as a UTF-8 HTML string.</span></div>
+            <div class="func-row"><span class="func-label">Input</span><span><code>MonitoringData</code> object + report date string + list of email dicts</span></div>
+            <div class="func-row"><span class="func-label">Output</span><span>Complete <code>&lt;!DOCTYPE html&gt;</code> document string</span></div>
+            <div class="func-row"><span class="func-label">Layout</span><span>Type-first: All Tablespaces table → All Diskgroups table → All Mount Points table. Each with env banners → db sub-headers → rows.</span></div>
+          </div>
+        </div>
+
+        <div class="func-card">
+          <div class="func-head"><span class="badge" style="background:#fef9ec;color:#92400e;">core</span><span class="func-name">_send_with_attachment(to_addr, report_date, html_body, attachment_path)</span></div>
+          <div class="func-body">
+            <div class="func-row"><span class="func-label">Purpose</span><span>Sends dashboard via Outlook COM with HTML body + HTML file attachment.</span></div>
+            <div class="func-row"><span class="func-label">COM Chain</span><span><code>win32com.Dispatch("outlook.application") → CreateItem(0) → .To / .Subject / .HTMLBody / .Attachments.Add() → .Send()</code></span></div>
+          </div>
+        </div>
+
+        <div class="func-card">
+          <div class="func-head"><span class="badge" style="background:#fde8e8;color:#c0392b;">entry</span><span class="func-name">run(folder_name, days_back, output_file, send_to, open_browser)</span></div>
+          <div class="func-body">
+            <div class="func-row"><span class="func-label">Purpose</span><span>Main orchestration function executing the full 8-step pipeline.</span></div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ── 6. DATA FLOW ── -->
+    <div class="section" id="s6">
+      <div class="section-head">
+        <div class="section-num">6</div>
+        <h2>Data Flow &amp; Execution Pipeline</h2>
+      </div>
+      <div class="section-body">
+        <div class="pipeline">
+
+          <div class="pipeline-step">
+            <div class="step-connector"><div class="step-circle">1</div><div class="step-line"></div></div>
+            <div class="step-content">
+              <div class="step-title">Connect to Outlook</div>
+              <div class="step-desc"><code>connect_outlook()</code> → returns MAPI namespace via COM. Fails with <code>sys.exit(1)</code> if Outlook is not open.</div>
+            </div>
+          </div>
+
+          <div class="pipeline-step">
+            <div class="step-connector"><div class="step-circle">2</div><div class="step-line"></div></div>
+            <div class="step-content">
+              <div class="step-title">Open Monitoring Folder</div>
+              <div class="step-desc"><code>get_folder(namespace, folder_name)</code> → Outlook folder object. Raises <code>FileNotFoundError</code> if folder not found.</div>
+            </div>
+          </div>
+
+          <div class="pipeline-step">
+            <div class="step-connector"><div class="step-circle">3</div><div class="step-line"></div></div>
+            <div class="step-content">
+              <div class="step-title">Fetch &amp; Deduplicate Emails</div>
+              <div class="step-desc"><code>get_emails_by_subject(folder, MONITORING_KEYWORDS, days_back)</code> → raw email list. Then <code>deduplicate_latest()</code> removes older duplicates. Returns <code>list[dict]</code> with keys: <code>subject</code>, <code>received_time</code>, <code>sender</code>, <code>body</code>.</div>
+            </div>
+          </div>
+
+          <div class="pipeline-step">
+            <div class="step-connector"><div class="step-circle">4</div><div class="step-line"></div></div>
+            <div class="step-content">
+              <div class="step-title">Parse Monitoring Data</div>
+              <div class="step-desc"><code>parse_monitoring_emails(emails)</code> → <code>MonitoringData</code> object with <code>.tablespaces</code>, <code>.diskgroups</code>, <code>.mount_points</code> lists.</div>
+            </div>
+          </div>
+
+          <div class="pipeline-step">
+            <div class="step-connector"><div class="step-circle">5</div><div class="step-line"></div></div>
+            <div class="step-content">
+              <div class="step-title">Build HTML Dashboard</div>
+              <div class="step-desc"><code>build_html(data, report_date, emails)</code> → complete HTML string. Groups data by environment then database. Renders critical alerts, three typed tables, summary cards.</div>
+            </div>
+          </div>
+
+          <div class="pipeline-step">
+            <div class="step-connector"><div class="step-circle">6</div><div class="step-line"></div></div>
+            <div class="step-content">
+              <div class="step-title">Save HTML File</div>
+              <div class="step-desc">Written to <code>&lt;script_dir&gt;/monitoring_dashboard_YYYYMMDD.html</code> using UTF-8 encoding.</div>
+            </div>
+          </div>
+
+          <div class="pipeline-step">
+            <div class="step-connector"><div class="step-circle">7</div><div class="step-line"></div></div>
+            <div class="step-content">
+              <div class="step-title">Open in Browser</div>
+              <div class="step-desc"><code>webbrowser.open(file:///path)</code> — skipped if <code>--no-browser</code> flag is set.</div>
+            </div>
+          </div>
+
+          <div class="pipeline-step">
+            <div class="step-connector"><div class="step-circle">8</div><div class="step-line"></div></div>
+            <div class="step-content">
+              <div class="step-title">Send Email with Attachment</div>
+              <div class="step-desc">Sends to all recipients in <code>{send_to, RECIPIENT_EMAIL}</code> deduplicated set. Each email has full HTML body + <code>.html</code> file attached via Outlook COM.</div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <!-- ── 7. HTML ENGINE ── -->
+    <div class="section" id="s7">
+      <div class="section-head">
+        <div class="section-num">7</div>
+        <h2>HTML Rendering Engine</h2>
+      </div>
+      <div class="section-body">
+        <p>The dashboard uses a <strong>table-based HTML layout</strong> (not CSS grid/flexbox) for maximum email client compatibility.</p>
+
+        <div class="diagram-wrap">
+          <svg viewBox="0 0 760 420" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:Inter,sans-serif;font-size:11px;">
+            <rect width="760" height="420" fill="#f8faff" rx="8"/>
+            <text x="380" y="24" text-anchor="middle" font-size="13" font-weight="700" fill="#1a2744">HTML Dashboard Structure</text>
+
+            <!-- outer card -->
+            <rect x="30" y="38" width="700" height="368" rx="8" fill="none" stroke="#2eaadc" stroke-width="1.5" stroke-dasharray="6,3"/>
+            <text x="40" y="52" fill="#2eaadc" font-size="10" font-weight="600">Outer table width=100% (page bg)</text>
+
+            <!-- inner card -->
+            <rect x="50" y="58" width="660" height="340" rx="6" fill="#fff" stroke="#1a2744" stroke-width="1.5"/>
+
+            <!-- title bar -->
+            <rect x="50" y="58" width="660" height="36" rx="6" fill="#1a2744"/>
+            <text x="380" y="80" text-anchor="middle" fill="#fff" font-weight="600">Title Bar — Day name · Report date · Generated timestamp</text>
+
+            <!-- summary cards -->
+            <rect x="50" y="94" width="660" height="42" rx="0" fill="#f8faff" stroke="#dde3ed" stroke-width="1"/>
+            <rect x="60" y="99" width="200" height="30" rx="4" fill="#fee2e2" stroke="#c0392b" stroke-width="1"/>
+            <text x="160" y="119" text-anchor="middle" fill="#c0392b" font-weight="700">Critical: N</text>
+            <rect x="270" y="99" width="200" height="30" rx="4" fill="#fff3e0" stroke="#e67e22" stroke-width="1"/>
+            <text x="370" y="119" text-anchor="middle" fill="#e67e22" font-weight="700">Warning: N</text>
+            <rect x="480" y="99" width="220" height="30" rx="4" fill="#d1fae5" stroke="#27ae60" stroke-width="1"/>
+            <text x="590" y="119" text-anchor="middle" fill="#27ae60" font-weight="700">Healthy: N</text>
+
+            <!-- emails scanned -->
+            <rect x="50" y="136" width="660" height="24" rx="0" fill="#fafafa" stroke="#dde3ed" stroke-width="1"/>
+            <text x="380" y="152" text-anchor="middle" fill="#555">📧 N email(s) scanned from Outlook  ▸ (collapsible)</text>
+
+            <!-- CRITICAL BOX -->
+            <rect x="50" y="160" width="660" height="50" rx="0" fill="#fdecea" stroke="#c0392b" stroke-width="1.5"/>
+            <rect x="50" y="160" width="4" height="50" fill="#c0392b"/>
+            <text x="380" y="180" text-anchor="middle" fill="#c0392b" font-weight="700" font-size="12">🚨 Critical Issues Requiring Immediate Attention</text>
+            <text x="380" y="198" text-anchor="middle" fill="#922b21" font-size="10">Type banner → Env banner → DB/Host banner → Data rows (sorted by % desc)</text>
+
+            <!-- Tablespaces -->
+            <rect x="50" y="210" width="660" height="48" rx="0" fill="#f8faff" stroke="#dde3ed" stroke-width="1"/>
+            <rect x="55" y="215" width="650" height="16" rx="3" fill="#1a2744"/>
+            <text x="380" y="227" text-anchor="middle" fill="#fff" font-size="10">🗄 Tablespaces — Env banner (PROD/QA…) → DB sub-header → rows</text>
+            <rect x="55" y="233" width="650" height="20" rx="2" fill="#eaf0fb" stroke="#c5d5ea" stroke-width="1"/>
+            <text x="380" y="247" text-anchor="middle" fill="#1a5276" font-size="10" font-weight="600">📁 CTSPRD · 📁 CDBPRD · … (each with data rows)</text>
+
+            <!-- Diskgroups -->
+            <rect x="50" y="258" width="660" height="48" rx="0" fill="#f8faff" stroke="#dde3ed" stroke-width="1"/>
+            <rect x="55" y="263" width="650" height="16" rx="3" fill="#1a2744"/>
+            <text x="380" y="275" text-anchor="middle" fill="#fff" font-size="10">💾 Diskgroups (ASM) — same grouping as Tablespaces</text>
+            <rect x="55" y="281" width="650" height="20" rx="2" fill="#eaf0fb" stroke="#c5d5ea" stroke-width="1"/>
+            <text x="380" y="295" text-anchor="middle" fill="#1a5276" font-size="10" font-weight="600">📁 database sub-headers with diskgroup rows</text>
+
+            <!-- Mount Points -->
+            <rect x="50" y="306" width="660" height="48" rx="0" fill="#f8faff" stroke="#dde3ed" stroke-width="1"/>
+            <rect x="55" y="311" width="650" height="16" rx="3" fill="#1a2744"/>
+            <text x="380" y="323" text-anchor="middle" fill="#fff" font-size="10">🖥 Mount Points — Env banner → Host sub-header → rows</text>
+            <rect x="55" y="329" width="650" height="20" rx="2" fill="#eaf0fb" stroke="#c5d5ea" stroke-width="1"/>
+            <text x="380" y="343" text-anchor="middle" fill="#1a5276" font-size="10" font-weight="600">📁 server-host sub-headers with mount point rows</text>
+
+            <!-- Footer -->
+            <rect x="50" y="354" width="660" height="24" rx="0" fill="#f4f6f8" stroke="#dde3ed" stroke-width="1"/>
+            <text x="380" y="370" text-anchor="middle" fill="#95a5a6" font-size="10">Auto-generated by Friday Monitoring Dashboard · timestamp</text>
+          </svg>
+        </div>
+
+        <h3>Visual Component Functions</h3>
+        <table>
+          <thead><tr><th>Function</th><th>Output</th><th>Dimensions</th></tr></thead>
+          <tbody>
+            <tr><td><code>_bar()</code></td><td>Inline progress bar div</td><td>100px × 8px, rounded</td></tr>
+            <tr><td><code>_badge()</code></td><td>Pill-shaped status span</td><td>Inline, border-radius: 10px</td></tr>
+            <tr><td><code>_th()</code></td><td>Header row with dark bg cells</td><td>Background #34495e</td></tr>
+            <tr><td><code>_td()</code></td><td>Data row with bordered cells</td><td>Border #e0e0e0</td></tr>
+            <tr><td><code>_env_banner()</code></td><td>Full-width env colour band</td><td>Spans all columns</td></tr>
+            <tr><td><code>_db_banner()</code></td><td>Light blue db/host divider</td><td>Background #eaf0fb</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ── 8. ALERT LOGIC ── -->
+    <div class="section" id="s8">
+      <div class="section-head">
+        <div class="section-num">8</div>
+        <h2>Alert &amp; Status Logic</h2>
+      </div>
+      <div class="section-body">
+        <p>The critical alert section collects items using nested <code>defaultdict</code> structures and renders them in <strong>type → environment → database</strong> order.</p>
+
+        <pre><span class="cm"># Three nested dicts collect critical items</span>
+crit_ts = <span class="fn">defaultdict</span>(<span class="kw">lambda</span>: <span class="fn">defaultdict</span>(list))  <span class="cm"># env → db → [ts]</span>
+crit_dg = <span class="fn">defaultdict</span>(<span class="kw">lambda</span>: <span class="fn">defaultdict</span>(list))  <span class="cm"># env → db → [dg]</span>
+crit_mp = <span class="fn">defaultdict</span>(<span class="kw">lambda</span>: <span class="fn">defaultdict</span>(list))  <span class="cm"># env → host → [mp]</span>
+
+<span class="kw">for</span> ts <span class="kw">in</span> <span class="fn">_dedupe</span>(data.tablespaces, ...):
+    <span class="kw">if</span> ts.used_percent >= TS_CRIT:
+        crit_ts[<span class="fn">_env</span>(ts.database)][ts.database].<span class="fn">append</span>(ts)</pre>
+
+        <h3>Status Colour Reference</h3>
+        <table>
+          <thead><tr><th>Status</th><th>Text Colour</th><th>Background</th><th>Badge Preview</th></tr></thead>
+          <tbody>
+            <tr><td>CRITICAL</td><td><code>#ffffff</code></td><td><code>#c0392b</code></td><td><span class="badge badge-crit">CRITICAL</span></td></tr>
+            <tr><td>WARNING</td><td><code>#7d5a00</code></td><td><code>#fce8b6</code></td><td><span class="badge badge-warn">WARNING</span></td></tr>
+            <tr><td>OK</td><td><code>#1e6b3a</code></td><td><code>#cdefd8</code></td><td><span class="badge badge-ok">OK</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ── 9. ENV CLASSIFICATION ── -->
+    <div class="section" id="s9">
+      <div class="section-head">
+        <div class="section-num">9</div>
+        <h2>Environment Classification Logic</h2>
+      </div>
+      <div class="section-body">
+
+        <div class="diagram-wrap">
+          <svg viewBox="0 0 700 180" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:Inter,sans-serif;font-size:11px;">
+            <rect width="700" height="180" fill="#f8faff" rx="8"/>
+            <text x="350" y="22" text-anchor="middle" font-size="12" font-weight="700" fill="#1a2744">_env(name) — Classification Decision Tree</text>
+
+            <!-- Input -->
+            <rect x="290" y="34" width="120" height="28" rx="14" fill="#1a2744" stroke="#2eaadc" stroke-width="1.5"/>
+            <text x="350" y="52" text-anchor="middle" fill="#fff" font-weight="600">name.upper()</text>
+
+            <!-- Arrows & checks -->
+            <line x1="230" y1="48" x2="288" y2="48" stroke="#dde3ed" stroke-width="1.5"/>
+            <line x1="412" y1="48" x2="470" y2="48" stroke="#dde3ed" stroke-width="1.5"/>
+
+            <!-- Nodes -->
+            <rect x="30" y="80" width="100" height="28" rx="6" fill="#c0392b"/>
+            <text x="80" y="98" text-anchor="middle" fill="#fff" font-weight="700">PROD</text>
+            <text x="80" y="120" text-anchor="middle" fill="#6b7a99" font-size="9">PRD / PROD</text>
+
+            <rect x="155" y="80" width="100" height="28" rx="6" fill="#16a085"/>
+            <text x="205" y="98" text-anchor="middle" fill="#fff" font-weight="700">QA/QTS</text>
+            <text x="205" y="120" text-anchor="middle" fill="#6b7a99" font-size="9">QTS / QA</text>
+
+            <rect x="280" y="80" width="100" height="28" rx="6" fill="#8e44ad"/>
+            <text x="330" y="98" text-anchor="middle" fill="#fff" font-weight="700">TST</text>
+            <text x="330" y="120" text-anchor="middle" fill="#6b7a99" font-size="9">TST / TEST</text>
+
+            <rect x="405" y="80" width="100" height="28" rx="6" fill="#2980b9"/>
+            <text x="455" y="98" text-anchor="middle" fill="#fff" font-weight="700">DEV</text>
+            <text x="455" y="120" text-anchor="middle" fill="#6b7a99" font-size="9">DEV</text>
+
+            <rect x="530" y="80" width="100" height="28" rx="6" fill="#34495e"/>
+            <text x="580" y="98" text-anchor="middle" fill="#fff" font-weight="700">OTHER</text>
+            <text x="580" y="120" text-anchor="middle" fill="#6b7a99" font-size="9">no match</text>
+
+            <!-- lines from input -->
+            <line x1="350" y1="62" x2="80"  y2="80" stroke="#dde3ed" stroke-width="1" stroke-dasharray="3,2"/>
+            <line x1="350" y1="62" x2="205" y2="80" stroke="#dde3ed" stroke-width="1" stroke-dasharray="3,2"/>
+            <line x1="350" y1="62" x2="330" y2="80" stroke="#dde3ed" stroke-width="1" stroke-dasharray="3,2"/>
+            <line x1="350" y1="62" x2="455" y2="80" stroke="#dde3ed" stroke-width="1" stroke-dasharray="3,2"/>
+            <line x1="350" y1="62" x2="580" y2="80" stroke="#dde3ed" stroke-width="1" stroke-dasharray="3,2"/>
+
+            <!-- Priority labels -->
+            <text x="350" y="150" text-anchor="middle" fill="#6b7a99" font-size="9">Checked left → right. First match wins. Falls through to OTHER.</text>
+            <text x="80"  y="140" text-anchor="middle" fill="#c0392b" font-size="9" font-weight="700">Priority 1</text>
+            <text x="205" y="140" text-anchor="middle" fill="#16a085" font-size="9" font-weight="700">Priority 2</text>
+            <text x="330" y="140" text-anchor="middle" fill="#8e44ad" font-size="9" font-weight="700">Priority 3</text>
+            <text x="455" y="140" text-anchor="middle" fill="#2980b9" font-size="9" font-weight="700">Priority 4</text>
+            <text x="580" y="140" text-anchor="middle" fill="#34495e" font-size="9" font-weight="700">Default</text>
+          </svg>
+        </div>
+
+        <table>
+          <thead><tr><th>Priority</th><th>Substring Match</th><th>Label</th><th>Example Names</th></tr></thead>
+          <tbody>
+            <tr><td>1</td><td><code>PRD</code> or <code>PROD</code></td><td><span class="badge badge-prod">PROD</span></td><td>CTSPRD, DBPROD01</td></tr>
+            <tr><td>2</td><td><code>QTS</code> or <code>QA</code></td><td><span class="badge badge-qa">QA/QTS</span></td><td>QADB02, CTSQTS</td></tr>
+            <tr><td>3</td><td><code>TST</code> or <code>TEST</code></td><td><span class="badge badge-tst">TST</span></td><td>TSTDB01, TESTENV</td></tr>
+            <tr><td>4</td><td><code>DEV</code></td><td><span class="badge badge-dev">DEV</span></td><td>DEVDB, CTSDEV</td></tr>
+            <tr><td>5</td><td>(no match)</td><td><span class="badge" style="background:#f0f0f0;color:#34495e;">OTHER</span></td><td>SANDBOX, MISC01</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ── 10. DEDUPLICATION ── -->
+    <div class="section" id="s10">
+      <div class="section-head">
+        <div class="section-num">10</div>
+        <h2>Deduplication Logic</h2>
+      </div>
+      <div class="section-body">
+        <p>Two independent deduplication passes run at different stages of the pipeline:</p>
+
+        <div class="two-col">
+          <div class="info-block">
+            <div class="ib-label">Level 1 — Email Deduplication</div>
+            <div class="ib-val" style="font-size:12.5px;">
+              Function: <code>deduplicate_latest()</code><br><br>
+              Sorts emails by <code>received_time</code> descending.
+              Normalises subject via <code>_normalize()</code> (strips dates).
+              Keeps only the most recent email per normalised subject.
+              <br><br>
+              <strong>Prevents:</strong> old/duplicate monitoring emails inflating data.
+            </div>
+          </div>
+          <div class="info-block">
+            <div class="ib-label">Level 2 — Entry Deduplication</div>
+            <div class="ib-val" style="font-size:12.5px;">
+              Function: <code>_dedupe(entries, key)</code><br><br>
+              Sorts entries by <code>used_percent</code> descending.
+              Keeps the entry with the <strong>highest usage</strong> for each unique key.
+              <br><br>
+              <strong>Prevents:</strong> same tablespace/diskgroup/mountpoint appearing multiple times if it appeared in multiple emails.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── 11. EMAIL DELIVERY ── -->
+    <div class="section" id="s11">
+      <div class="section-head">
+        <div class="section-num">11</div>
+        <h2>Email Delivery — Outlook COM</h2>
+      </div>
+      <div class="section-body">
+        <pre><span class="cm"># COM object chain in _send_with_attachment()</span>
+outlook = win32com.<span class="fn">Dispatch</span>(<span class="str">"outlook.application"</span>)
+mail    = outlook.<span class="fn">CreateItem</span>(<span class="num-c">0</span>)        <span class="cm"># 0 = olMailItem</span>
+
+mail.To       = to_addr
+mail.Subject  = <span class="str">f"📊 {day_name} Monitoring Dashboard ({report_date})"</span>
+mail.HTMLBody = html_body              <span class="cm"># full colour-coded HTML</span>
+mail.Attachments.<span class="fn">Add</span>(abs_path)       <span class="cm"># .html file attached</span>
+mail.<span class="fn">Send</span>()</pre>
+
+        <h3>Recipient Resolution</h3>
+        <pre><span class="cm"># Deduplicates recipients — sends to both if different addresses</span>
+recipients = <span class="fn">list</span>({r <span class="kw">for</span> r <span class="kw">in</span> [send_to, RECIPIENT_EMAIL] <span class="kw">if</span> r <span class="kw">and</span> <span class="str">"@"</span> <span class="kw">in</span> r})</pre>
+
+        <div class="callout callout-warn">
+          <div class="callout-icon">⚠️</div>
+          <div class="callout-text"><b>Prerequisite:</b> Outlook must be open and a mail profile must be configured. If <code>pywin32</code> is not installed, a <code>RuntimeError</code> is raised, caught, and printed — the script continues without sending.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── 12. CLI ARGUMENTS ── -->
+    <div class="section" id="s12">
+      <div class="section-head">
+        <div class="section-num">12</div>
+        <h2>CLI Argument Reference</h2>
+      </div>
+      <div class="section-body">
+        <pre><span class="kw">python</span> dashboard.py [OPTIONS]
+
+<span class="cm">Examples:</span>
+  <span class="kw">python</span> dashboard.py
+  <span class="kw">python</span> dashboard.py --days-back <span class="num-c">14</span>
+  <span class="kw">python</span> dashboard.py --folder <span class="str">"My Folder"</span> --send-to <span class="str">"team@company.com"</span>
+  <span class="kw">python</span> dashboard.py --no-browser --output <span class="str">"C:\Reports\report.html"</span></pre>
+
+        <table>
+          <thead><tr><th>Argument</th><th>Short</th><th>Type</th><th>Default</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>--folder</code></td><td><code>-f</code></td><td>str</td><td>"Friday Monitoring"</td><td>Outlook folder name to scan</td></tr>
+            <tr><td><code>--days-back</code></td><td>—</td><td>int</td><td>7</td><td>Days to look back for emails</td></tr>
+            <tr><td><code>--output</code></td><td><code>-o</code></td><td>str</td><td>auto-named</td><td>Output HTML file path</td></tr>
+            <tr><td><code>--send-to</code></td><td><code>-s</code></td><td>str</td><td>None</td><td>Additional recipient email</td></tr>
+            <tr><td><code>--email</code></td><td>—</td><td>flag</td><td>False</td><td>Send to RECIPIENT_EMAIL (legacy flag)</td></tr>
+            <tr><td><code>--no-browser</code></td><td>—</td><td>flag</td><td>False</td><td>Skip opening browser</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ── 13. MODULE CONTRACT ── -->
+    <div class="section" id="s13">
+      <div class="section-head">
+        <div class="section-num">13</div>
+        <h2>Inter-Module Interface Contract</h2>
+      </div>
+      <div class="section-body">
+        <h3>outlook_reader.py — Required Functions</h3>
+        <pre><span class="fn">connect_outlook</span>() → namespace
+    <span class="cm"># Returns win32com MAPI namespace. Raises exception if Outlook unavailable.</span>
+
+<span class="fn">get_folder</span>(namespace, folder_name: str) → folder_object
+    <span class="cm"># folder_object must support: .Name (str), .Items.Count (int)</span>
+    <span class="cm"># Must raise FileNotFoundError if folder not found</span>
+
+<span class="fn">get_emails_by_subject</span>(folder, keywords: list, days_back: int) → list[dict]
+    <span class="cm"># Each dict: { 'subject': str, 'received_time': datetime,</span>
+    <span class="cm">#               'sender': str, 'body': str }</span></pre>
+
+        <h3>email_parser.py — Required Function</h3>
+        <pre><span class="fn">parse_monitoring_emails</span>(emails: list) → MonitoringData
+
+<span class="cm"># MonitoringData must expose:</span>
+.tablespaces   <span class="cm"># list of objects with: .database, .tablespace_name, .used_percent</span>
+.diskgroups    <span class="cm"># list of objects with: .database, .diskgroup_name,  .used_percent</span>
+.mount_points  <span class="cm"># list of objects with: .host, .mount_point,          .used_percent</span></pre>
+
+        <div class="callout callout-info">
+          <div class="callout-icon">ℹ️</div>
+          <div class="callout-text"><b>Note:</b> The <code>host</code> field on mount_point objects may be empty or <code>None</code>. The dashboard handles this by falling back to <code>"Unknown Host"</code> as the sub-group label.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── 14. ERROR HANDLING ── -->
+    <div class="section" id="s14">
+      <div class="section-head">
+        <div class="section-num">14</div>
+        <h2>Error Handling &amp; Exit Codes</h2>
+      </div>
+      <div class="section-body">
+        <table>
+          <thead><tr><th>Scenario</th><th>Handling</th><th>Exit</th></tr></thead>
+          <tbody class="error-row">
+            <tr><td>Import fails (outlook_reader / email_parser)</td><td>Prints ImportError, instructs user to check folder</td><td><span class="exit-1">exit(1)</span></td></tr>
+            <tr><td>Outlook not open</td><td>Prints exception message</td><td><span class="exit-1">exit(1)</span></td></tr>
+            <tr><td>Folder not found in Outlook</td><td>Prints FileNotFoundError</td><td><span class="exit-1">exit(1)</span></td></tr>
+            <tr><td>No matching emails found</td><td>Prints warning, suggests --days-back 14</td><td><span class="exit-0">exit(0)</span></td></tr>
+            <tr><td>pywin32 not installed</td><td>RuntimeError caught in run(), prints error, continues</td><td>None</td></tr>
+            <tr><td>Email send fails</td><td>Exception caught in run(), prints error, continues</td><td>None</td></tr>
+            <tr><td>HTML file write fails</td><td>Unhandled — Python default traceback</td><td>Crash</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ── 15. EXTENSIBILITY ── -->
+    <div class="section" id="s15">
+      <div class="section-head">
+        <div class="section-num">15</div>
+        <h2>Extensibility Guide</h2>
+      </div>
+      <div class="section-body">
+
+        <h3>Add a New Environment Type</h3>
+        <pre><span class="cm"># 1. Add check in _env() before the final return "OTHER":</span>
+<span class="kw">if</span> <span class="str">"STG"</span> <span class="kw">in</span> t <span class="kw">or</span> <span class="str">"STAGE"</span> <span class="kw">in</span> t: <span class="kw">return</span> <span class="str">"STAGE"</span>
+
+<span class="cm"># 2. Add colour to ENV_COLORS dict:</span>
+ENV_COLORS[<span class="str">"STAGE"</span>] = <span class="str">"#f39c12"</span>
+
+<span class="cm"># 3. Add to env_order in build_html():</span>
+env_order = [<span class="str">"PROD"</span>, <span class="str">"QA/QTS"</span>, <span class="str">"TST"</span>, <span class="str">"STAGE"</span>, <span class="str">"DEV"</span>, <span class="str">"OTHER"</span>]</pre>
+
+        <h3>Schedule Weekly Automated Run (Windows Task Scheduler)</h3>
+        <pre><span class="cm"># Action: Start a program</span>
+Program:   python
+Arguments: C:\monitoring-tool\dashboard.py
+Trigger:   Weekly, Friday, 08:00 AM
+Run as:    User with Outlook logged in</pre>
+
+        <div class="callout callout-ok">
+          <div class="callout-icon">✅</div>
+          <div class="callout-text"><b>Tip:</b> Add <code>--no-browser</code> to the Task Scheduler arguments so no browser window opens during unattended runs. The email will still be sent automatically.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── 16. LIMITATIONS ── -->
+    <div class="section" id="s16">
+      <div class="section-head">
+        <div class="section-num">16</div>
+        <h2>Known Limitations</h2>
+      </div>
+      <div class="section-body">
+        <table>
+          <thead><tr><th>#</th><th>Limitation</th><th>Impact</th></tr></thead>
+          <tbody>
+            <tr><td>1</td><td>Windows-only (win32com / COM)</td><td>Cannot run on Linux or macOS without replacing Outlook integration</td></tr>
+            <tr><td>2</td><td>Outlook must be open</td><td>Cannot run as a background service or headless task without Outlook active</td></tr>
+            <tr><td>3</td><td>No historical trending</td><td>Each run is a standalone snapshot; no week-over-week comparison</td></tr>
+            <tr><td>4</td><td>Depends on email_parser.py accuracy</td><td>If email format changes, parser must be updated</td></tr>
+            <tr><td>5</td><td>Empty host field on mount points</td><td>Falls back to "Unknown Host" grouping label</td></tr>
+            <tr><td>6</td><td>RECIPIENT_EMAIL is a placeholder</td><td>Script fails silently on email send if not updated</td></tr>
+            <tr><td>7</td><td>No retry on email failure</td><td>Single attempt only; failure is logged and execution continues</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ── 17. GLOSSARY ── -->
+    <div class="section" id="s17">
+      <div class="section-head">
+        <div class="section-num">17</div>
+        <h2>Glossary</h2>
+      </div>
+      <div class="section-body">
+        <table>
+          <thead><tr><th>Term</th><th>Definition</th></tr></thead>
+          <tbody>
+            <tr><td><strong>ASM</strong></td><td>Automatic Storage Management — Oracle's volume manager. Diskgroups are ASM storage units.</td></tr>
+            <tr><td><strong>COM / MAPI</strong></td><td>Windows-native APIs used to interact with Outlook programmatically via <code>win32com</code>.</td></tr>
+            <tr><td><strong>Diskgroup</strong></td><td>An Oracle ASM logical pool of disk storage. Critical for preventing Oracle outages.</td></tr>
+            <tr><td><strong>Mount Point</strong></td><td>A Linux/Unix directory at which a storage volume is attached (e.g. <code>/u01</code>, <code>/data</code>).</td></tr>
+            <tr><td><strong>Tablespace</strong></td><td>A logical Oracle DB storage unit. Usage % = how much of allocated space is consumed.</td></tr>
+            <tr><td><strong>used_percent</strong></td><td>Percentage of allocated capacity currently in use for any monitored resource.</td></tr>
+            <tr><td><strong>olMailItem</strong></td><td>Outlook COM constant (value = 0) representing a mail message, used in <code>CreateItem(0)</code>.</td></tr>
+            <tr><td><strong>pywin32</strong></td><td>Python package providing Windows COM and Win32 API access. Install: <code>pip install pywin32</code>.</td></tr>
+            <tr><td><strong>defaultdict</strong></td><td>Python collections class that auto-creates default values for missing keys, used for grouping without <code>KeyError</code>.</td></tr>
+            <tr><td><strong>MonitoringData</strong></td><td>Object returned by <code>email_parser.py</code> containing parsed tablespace, diskgroup, and mount point lists.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div style="text-align:center;padding:24px 0 8px;color:var(--muted);font-size:12px;">
+      Friday Monitoring Dashboard — Technical Documentation v1.0 &nbsp;·&nbsp; Incedo Inc. &nbsp;·&nbsp; Confidential
+    </div>
+
+  </main>
+</div>
+
+</body>
+</html>

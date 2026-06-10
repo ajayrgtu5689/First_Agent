@@ -1,0 +1,800 @@
+================================================================================
+     FRIDAY MONITORING DASHBOARD — TECHNICAL DOCUMENTATION
+     System Design, Architecture, Code Reference & Developer Guide
+================================================================================
+
+Document Title   : Technical Documentation — Friday Monitoring Dashboard
+Script Name      : dashboard.py
+Language         : Python 3.8+
+Platform         : Windows (requires Microsoft Outlook installed and running)
+Version          : 1.0
+Prepared by      : Incedo Inc.
+
+
+================================================================================
+TABLE OF CONTENTS
+================================================================================
+
+  1.  System Architecture
+  2.  File Structure & Module Dependencies
+  3.  Environment & Installation Requirements
+  4.  Configuration Constants
+  5.  Module: dashboard.py — Complete Function Reference
+  6.  Data Flow & Execution Pipeline
+  7.  HTML Rendering Engine
+  8.  Alert & Status Logic
+  9.  Environment Classification Logic
+ 10.  Deduplication Logic
+ 11.  Email Delivery (Outlook COM)
+ 12.  CLI Argument Reference
+ 13.  Inter-Module Interface Contract
+ 14.  Error Handling & Exit Codes
+ 15.  Performance Considerations
+ 16.  Extensibility Guide
+ 17.  Known Limitations
+ 18.  Glossary
+
+
+================================================================================
+1. SYSTEM ARCHITECTURE
+================================================================================
+
+The tool follows a linear pipeline architecture:
+
+  [Outlook Mailbox]
+        |
+        v
+  [outlook_reader.py]  ──── COM/MAPI connection ────> Outlook Application
+        |
+        v  (list of raw email dicts)
+  [email_parser.py]  ──── text/HTML parsing ────> structured data objects
+        |
+        v  (MonitoringData object with .tablespaces / .diskgroups / .mount_points)
+  [dashboard.py: build_html()]  ──── HTML generation ────> in-memory HTML string
+        |
+        |──> saved as .html file on disk
+        |──> opened in default browser (webbrowser module)
+        |──> sent via Outlook COM as email with attachment (win32com)
+
+All processing is local. No external APIs, databases, or network calls are made.
+
+
+================================================================================
+2. FILE STRUCTURE & MODULE DEPENDENCIES
+================================================================================
+
+Required files (all must be in the same directory):
+
+  dashboard.py          Main orchestration script. Contains:
+                          - Configuration constants
+                          - HTML rendering engine
+                          - Alert logic
+                          - Email dispatch
+                          - CLI entry point
+
+  outlook_reader.py     Outlook integration module. Must expose:
+                          - connect_outlook()       -> namespace object
+                          - get_folder()            -> Outlook folder object
+                          - get_emails_by_subject() -> list of email dicts
+                          - send_email()            -> (legacy, not used for
+                                                        attachment sending)
+
+  email_parser.py       Email content parsing module. Must expose:
+                          - parse_monitoring_emails() -> MonitoringData object
+
+Output file (auto-generated):
+
+  monitoring_dashboard_YYYYMMDD.html
+                        Generated HTML report, written to the same directory
+                        as dashboard.py. One file per run, named by date.
+
+Python standard library imports used:
+
+  argparse              CLI argument parsing
+  os                    File path construction, existence checks
+  re                    Regex for subject normalisation
+  sys                   sys.exit(), sys.path manipulation
+  webbrowser            Open HTML in default browser
+  collections.defaultdict  Nested grouping of monitoring data
+  datetime              Timestamps, day name, date formatting
+
+Third-party imports:
+
+  win32com.client       Outlook COM automation (pywin32 package)
+                        Used in: _send_with_attachment()
+
+
+================================================================================
+3. ENVIRONMENT & INSTALLATION REQUIREMENTS
+================================================================================
+
+Operating System:     Windows 10 / Windows 11 (mandatory — COM/MAPI is Windows-only)
+Python Version:       3.8 or above
+Microsoft Outlook:    Must be installed, configured with a mail profile,
+                      and running when the script executes.
+
+Package installation:
+
+  pip install pywin32
+
+Post-install step for pywin32 (run once after install):
+
+  python -m pywin32_postinstall -install
+
+Verify Outlook COM access (optional test):
+
+  python -c "import win32com.client; o=win32com.client.Dispatch('Outlook.Application'); print(o.Name)"
+
+Expected output: "Microsoft Outlook"
+
+
+================================================================================
+4. CONFIGURATION CONSTANTS
+================================================================================
+
+Located at the top of dashboard.py (lines 46-57):
+
+  Constant              Type     Default                Description
+  --------------------  -------  ---------------------  --------------------------
+  DEFAULT_FOLDER        str      "Friday Monitoring"    Outlook folder to scan
+  RECIPIENT_EMAIL       str      "YOUR_EMAIL@domain"    Default email recipient
+  MONITORING_KEYWORDS   list     [see below]            Subject keyword filters
+  TS_CRIT               int      90                     Tablespace critical %
+  TS_WARN               int      85                     Tablespace warning %
+  DG_CRIT               int      90                     Diskgroup critical %
+  DG_WARN               int      70                     Diskgroup warning %
+  MP_CRIT               int      80                     Mount point critical %
+  MP_WARN               int      65                     Mount point warning %
+
+MONITORING_KEYWORDS list (used for email subject matching):
+  "tablespace", "diskgroup", "mount point", "monitoring",
+  "disk", "ASM", "filesystem", "Thursday-Friday", "Friday"
+
+ENV_COLORS dict (maps environment label to HTML hex colour):
+  "PROD"   -> "#c0392b"  (red)
+  "QA/QTS" -> "#16a085"  (teal)
+  "TST"    -> "#8e44ad"  (purple)
+  "DEV"    -> "#2980b9"  (blue)
+  "OTHER"  -> "#34495e"  (dark grey)
+
+
+================================================================================
+5. MODULE: dashboard.py — COMPLETE FUNCTION REFERENCE
+================================================================================
+
+--------------------------------------------------------------------------------
+5.1  _env(name: str) -> str
+--------------------------------------------------------------------------------
+Purpose  : Classifies a database or host name into an environment label.
+Logic    : Converts name to uppercase, checks for substrings:
+             "PRD" or "PROD"  -> "PROD"
+             "QTS" or "QA"    -> "QA/QTS"
+             "TST" or "TEST"  -> "TST"
+             "DEV"            -> "DEV"
+             (no match)       -> "OTHER"
+Returns  : One of: "PROD", "QA/QTS", "TST", "DEV", "OTHER"
+Example  : _env("CTSPRD01") -> "PROD"
+           _env("QADB02")   -> "QA/QTS"
+
+--------------------------------------------------------------------------------
+5.2  _status(pct: float, crit: int, warn: int) -> tuple(str, str, str)
+--------------------------------------------------------------------------------
+Purpose  : Determines severity status and display colours for a usage %.
+Returns  : (status_label, text_colour_hex, background_colour_hex)
+Logic    :
+             pct >= crit  ->  ("CRITICAL", "#ffffff", "#c0392b")
+             pct >= warn  ->  ("WARNING",  "#7d5a00", "#fce8b6")
+             otherwise    ->  ("OK",       "#1e6b3a", "#cdefd8")
+Example  : _status(92, 90, 85) -> ("CRITICAL", "#ffffff", "#c0392b")
+           _status(87, 90, 85) -> ("WARNING",  "#7d5a00", "#fce8b6")
+           _status(60, 90, 85) -> ("OK",       "#1e6b3a", "#cdefd8")
+
+--------------------------------------------------------------------------------
+5.3  _bar(pct: float, crit: int, warn: int) -> str
+--------------------------------------------------------------------------------
+Purpose  : Generates an inline HTML progress bar element.
+Returns  : HTML string — a grey background div with a coloured fill div.
+Logic    : Fill colour is determined by _status(). Width is clamped to [2, 100].
+Output   : 100px wide bar, 8px tall, with colour matching severity.
+
+--------------------------------------------------------------------------------
+5.4  _badge(label: str, tc: str, bc: str) -> str
+--------------------------------------------------------------------------------
+Purpose  : Generates a coloured pill/badge HTML span element.
+Parameters:
+  label  : Text displayed inside the badge (e.g. "CRITICAL")
+  tc     : Text colour (hex)
+  bc     : Background colour (hex)
+Returns  : HTML <span> string with inline styles.
+
+--------------------------------------------------------------------------------
+5.5  _dedupe(entries: list, key: callable) -> list
+--------------------------------------------------------------------------------
+Purpose  : Removes duplicate monitoring entries, keeping the one with the
+           highest used_percent for each unique key.
+Logic    : Sorts entries descending by used_percent, then iterates and keeps
+           first occurrence of each key.
+Parameters:
+  entries : List of data objects with .used_percent attribute
+  key     : Lambda returning the deduplication key tuple
+             e.g. lambda e: (e.database, e.tablespace_name)
+Returns  : Deduplicated list, ordered by used_percent descending.
+
+--------------------------------------------------------------------------------
+5.6  _normalize(subject: str) -> str
+--------------------------------------------------------------------------------
+Purpose  : Normalises an email subject string for deduplication comparison.
+Logic    : Strips dates in formats DD-Mon-YYYY and YYYY-MM-DD, lowercases,
+           collapses whitespace/dashes/underscores.
+Regex patterns applied:
+  r'\d{1,2}[-/ ]*[a-z]{3,}[-/ ]*\d{2,4}'  -> removes "06-Jun-2026" style dates
+  r'\d{4}-\d{2}-\d{2}'                     -> removes "2026-06-06" style dates
+  r'[-_\s]+'                               -> collapses separators to single space
+Returns  : Normalised lowercase string.
+Example  : "Tablespace Monitoring 06-Jun-2026" -> "tablespace monitoring"
+
+--------------------------------------------------------------------------------
+5.7  deduplicate_latest(emails: list) -> list
+--------------------------------------------------------------------------------
+Purpose  : From a list of email dicts, keeps only the most recently received
+           email for each unique normalised subject.
+Logic    : Sorts emails by received_time descending, then iterates keeping
+           the first (most recent) occurrence of each normalised subject key.
+Input    : List of dicts with keys: 'subject', 'received_time', 'sender', body
+Returns  : Deduplicated list of email dicts, most recent first.
+
+--------------------------------------------------------------------------------
+5.8  _th(*cols: str) -> str
+--------------------------------------------------------------------------------
+Purpose  : Generates an HTML table header row <tr> with styled <th> cells.
+Returns  : HTML string for one <tr> with dark (#34495e) background header cells.
+
+--------------------------------------------------------------------------------
+5.9  _td(*pairs: tuple) -> str
+--------------------------------------------------------------------------------
+Purpose  : Generates an HTML table data row <tr> with styled <td> cells.
+Parameters:
+  pairs  : Variable number of (html_content, extra_inline_style) tuples
+Returns  : HTML string for one <tr> with bordered data cells.
+
+--------------------------------------------------------------------------------
+5.10  _section_table(title: str, header_row: str, body_rows: list) -> str
+--------------------------------------------------------------------------------
+Purpose  : Wraps a list of table rows into a titled, styled HTML table block.
+Returns  : Empty string if body_rows is empty (section is omitted entirely).
+           Otherwise returns: title paragraph + full <table> with header + rows.
+
+--------------------------------------------------------------------------------
+5.11  build_html(data, report_date: str, emails_found: list) -> str
+--------------------------------------------------------------------------------
+Purpose  : Core HTML generation function. Produces the complete dashboard HTML.
+Parameters:
+  data         : MonitoringData object with .tablespaces, .diskgroups,
+                 .mount_points attributes (each a list of data objects)
+  report_date  : Formatted date string e.g. "10-Jun-2026"
+  emails_found : List of email dicts shown in the "emails scanned" section
+
+Internal processing steps:
+  a) Count totals (critical / warning / ok) across all three resource types
+  b) Group all entries by environment using _env() -> groups dict
+  c) Sort environments: PROD, QA/QTS, TST, DEV, OTHER, then any unrecognised
+  d) Define inner banner functions _env_banner() and _db_banner()
+  e) Build all_ts_rows: iterate sorted_envs -> group by db -> sort by pct desc
+  f) Build all_dg_rows: same pattern as tablespaces
+  g) Build all_mp_rows: same pattern, but sub-grouped by host instead of db
+  h) Build critical alert box: collect crit items into nested defaultdicts
+     (crit_ts, crit_dg, crit_mp) keyed by env -> db/host
+     then render type banners -> env banners -> db banners -> data rows
+  i) Assemble final HTML string using f-string template
+
+Returns  : Complete HTML document as a string (UTF-8).
+
+--------------------------------------------------------------------------------
+5.12  _send_with_attachment(to_addr, report_date, html_body, attachment_path)
+--------------------------------------------------------------------------------
+Purpose  : Sends the dashboard via Outlook COM as an email with HTML body
+           and the saved HTML file as an attachment.
+Parameters:
+  to_addr         : Recipient email address string
+  report_date     : Date string used in subject line
+  html_body       : Full HTML string (set as mail.HTMLBody)
+  attachment_path : Absolute or relative path to the saved .html file
+Logic    :
+  1. Imports win32com.client (raises RuntimeError if pywin32 not installed)
+  2. Dispatches "outlook.application" COM object
+  3. Creates olMailItem (item type 0)
+  4. Sets To, Subject, HTMLBody
+  5. Attaches file using mail.Attachments.Add() with absolute path
+  6. Calls mail.Send()
+Note     : Outlook must be open and a mail profile must be configured.
+
+--------------------------------------------------------------------------------
+5.13  run(folder_name, days_back, output_file, send_to, open_browser)
+--------------------------------------------------------------------------------
+Purpose  : Main orchestration function. Executes the full pipeline.
+Steps    :
+  1. connect_outlook()              -> namespace (MAPI session)
+  2. get_folder(namespace, name)    -> Outlook folder object
+  3. get_emails_by_subject(...)     -> raw email list
+  4. deduplicate_latest(emails)     -> cleaned email list
+  5. parse_monitoring_emails(emails)-> MonitoringData object
+  6. build_html(data, ...)          -> HTML string
+  7. Write HTML to output_file
+  8. webbrowser.open() if open_browser=True
+  9. _send_with_attachment() for each recipient in deduped recipient set
+
+Recipient logic:
+  recipients = unique set of {send_to, RECIPIENT_EMAIL} filtering empty/invalid
+
+Exit codes:
+  sys.exit(1)  on Outlook connection failure or folder not found
+  sys.exit(0)  if no emails found (soft exit, not an error)
+
+--------------------------------------------------------------------------------
+5.14  main()
+--------------------------------------------------------------------------------
+Purpose  : CLI entry point. Parses argparse arguments and calls run().
+Arguments: See Section 12.
+
+
+================================================================================
+6. DATA FLOW & EXECUTION PIPELINE
+================================================================================
+
+  INPUT:  Outlook folder emails (received within --days-back window)
+          |
+          | get_emails_by_subject() filters by MONITORING_KEYWORDS
+          | Returns: list of dicts:
+          |   {
+          |     'subject'       : str,
+          |     'received_time' : datetime,
+          |     'sender'        : str,
+          |     'body'          : str   (plain text or HTML)
+          |   }
+          |
+          | deduplicate_latest() removes older emails with same subject
+          |
+          v
+  PARSE:  parse_monitoring_emails(emails) -> MonitoringData
+          |
+          | MonitoringData has three lists:
+          |
+          |   .tablespaces   : list of objects with attributes:
+          |                      .database        (str)
+          |                      .tablespace_name (str)
+          |                      .used_percent    (float)
+          |
+          |   .diskgroups    : list of objects with attributes:
+          |                      .database        (str)
+          |                      .diskgroup_name  (str)
+          |                      .used_percent    (float)
+          |
+          |   .mount_points  : list of objects with attributes:
+          |                      .host            (str)
+          |                      .mount_point     (str)
+          |                      .used_percent    (float)
+          |
+          v
+  BUILD:  build_html(data, report_date, emails_found) -> str
+          |
+          | Groups data into nested structure:
+          |   groups[env]["ts" | "dg" | "mp"] = list of entries
+          |
+          | Then renders three flat tables (type-first layout):
+          |   Table 1: All Tablespaces  (env banner -> db banner -> rows)
+          |   Table 2: All Diskgroups   (env banner -> db banner -> rows)
+          |   Table 3: All Mount Points (env banner -> host banner -> rows)
+          |
+          | Critical alert box collected separately:
+          |   crit_ts[env][db]   = [ts entries with pct >= TS_CRIT]
+          |   crit_dg[env][db]   = [dg entries with pct >= DG_CRIT]
+          |   crit_mp[env][host] = [mp entries with pct >= MP_CRIT]
+          |
+          v
+  OUTPUT: HTML string written to file, opened in browser, emailed
+
+
+================================================================================
+7. HTML RENDERING ENGINE
+================================================================================
+
+The dashboard HTML is a table-based layout (not CSS grid/flexbox) for maximum
+email client compatibility.
+
+Outer structure:
+  <html>
+    <body>
+      <table width="100%">  <- page background
+        <table width="820"> <- content card
+          <tr> title bar
+          <tr> summary cards (3-column inner table)
+          <tr> emails scanned (collapsible <details>)
+          <tr> critical alert box       <- rendered FIRST (top position)
+          <tr> all tablespaces table
+          <tr> all diskgroups table
+          <tr> all mount points table
+          <tr> footer
+
+Table rendering functions hierarchy:
+
+  _section_table()
+    -> calls _th() for header row
+    -> takes pre-built body_rows list containing:
+         _env_banner() rows   (coloured env divider)
+         _db_banner()  rows   (light blue db/host divider)
+         _td()         rows   (data rows with _bar() and _badge())
+
+Visual bar implementation (_bar):
+  - Outer div: 100px wide, 8px tall, grey (#e8eaed) background
+  - Inner div: width = int(pct)%, capped at 2-100%, colour from _status()
+  - Both divs use border-radius: 4px for rounded appearance
+
+Badge implementation (_badge):
+  - Inline <span> with border-radius: 10px (pill shape)
+  - Colours passed directly from _status() return values
+
+
+================================================================================
+8. ALERT & STATUS LOGIC
+================================================================================
+
+Status determination (_status function):
+
+  Resource      CRITICAL (red)    WARNING (amber)    OK (green)
+  ------------  ----------------  -----------------  ----------------
+  Tablespace    pct >= 90         pct >= 85          pct < 85
+  Diskgroup     pct >= 90         pct >= 70          pct < 70
+  Mount Point   pct >= 80         pct >= 65          pct < 65
+
+Critical Alert Box logic:
+
+  - Iterates all deduplicated entries for each resource type
+  - Filters only those meeting the CRITICAL threshold
+  - Stores in three nested defaultdicts:
+      crit_ts : env -> database -> [tablespace objects]
+      crit_dg : env -> database -> [diskgroup objects]
+      crit_mp : env -> host     -> [mount point objects]
+  - Renders in order: Tablespaces section, Diskgroups section, Mount Points section
+  - Each section has: type banner (dark red) -> env banner (env colour) ->
+    db/host banner (light red) -> data rows sorted by pct desc
+  - If has_any is False, a green "No critical issues" banner is shown instead
+
+Summary card counts:
+  - total_crit = tc + dc + mc  (sum of critical across all three types)
+  - total_warn = tw + dw + mw
+  - total_ok   = tok + dok + mok
+  - Counts are based on ALL entries (not deduplicated), so they reflect
+    the full raw count from parsed emails
+
+
+================================================================================
+9. ENVIRONMENT CLASSIFICATION LOGIC
+================================================================================
+
+Function: _env(name: str) -> str
+
+Classification is based on substring matching (case-insensitive):
+
+  Priority  Pattern checked    Assigned label
+  --------  -----------------  ---------------
+  1         "PRD" or "PROD"    PROD
+  2         "QTS"  or "QA"     QA/QTS
+  3         "TST"  or "TEST"   TST
+  4         "DEV"              DEV
+  5         (no match)         OTHER
+
+For tablespaces and diskgroups: name = entry.database
+For mount points: name = entry.host (falls back to entry.mount_point if host
+  is empty)
+
+Environment display order in dashboard (sorted_envs):
+  PROD -> QA/QTS -> TST -> DEV -> OTHER -> (any unrecognised labels)
+
+To add a new environment:
+  1. Add substring check in _env() before the "OTHER" fallback
+  2. Add the new label and hex colour to ENV_COLORS dict
+
+
+================================================================================
+10. DEDUPLICATION LOGIC
+================================================================================
+
+Two levels of deduplication are applied:
+
+Level 1 — Email deduplication (deduplicate_latest):
+  - Operates on the list of email dicts fetched from Outlook
+  - Sorts emails by received_time descending (newest first)
+  - Normalises subject using _normalize() (strips dates, lowercases)
+  - Keeps only the first (most recent) occurrence of each normalised subject
+  - Prevents old/duplicate monitoring emails from inflating the data
+
+Level 2 — Entry deduplication (_dedupe):
+  - Operates on parsed data objects (tablespaces, diskgroups, mount_points)
+  - Sorts by used_percent descending
+  - Deduplication key:
+      Tablespaces  : (database, tablespace_name)
+      Diskgroups   : (database, diskgroup_name)
+      Mount Points : (host, mount_point)
+  - Keeps the entry with the HIGHEST used_percent for each unique key
+  - Applied before building critical alert collections and before building
+    the main data tables
+
+
+================================================================================
+11. EMAIL DELIVERY (OUTLOOK COM)
+================================================================================
+
+Function: _send_with_attachment(to_addr, report_date, html_body, attachment_path)
+
+COM object chain:
+  win32com.client.Dispatch("outlook.application")
+    -> .CreateItem(0)                   # olMailItem = 0
+    -> mail.To      = to_addr
+    -> mail.Subject = "..."
+    -> mail.HTMLBody = html_body        # full dashboard HTML
+    -> mail.Attachments.Add(abs_path)   # attaches the saved .html file
+    -> mail.Send()
+
+The email contains:
+  1. HTMLBody — the full colour-coded dashboard renders inline in the email
+  2. Attachment — the saved monitoring_dashboard_YYYYMMDD.html file
+
+Recipients logic in run():
+  recipients = list({r for r in [send_to, RECIPIENT_EMAIL] if r and "@" in r})
+
+  This creates a set (deduplicates if --send-to happens to equal RECIPIENT_EMAIL),
+  filters out None or empty strings, and requires "@" to be present as a basic
+  validity check. Sends one email per recipient.
+
+Fallback: If _send_with_attachment() raises an exception (e.g. Outlook not open,
+  pywin32 not installed), the error is caught and printed; the script does NOT
+  exit — the HTML file has already been saved and opened in the browser.
+
+
+================================================================================
+12. CLI ARGUMENT REFERENCE
+================================================================================
+
+Usage:
+  python dashboard.py [OPTIONS]
+
+  Argument          Short  Type    Default              Description
+  ----------------  -----  ------  -------------------  -------------------------
+  --folder          -f     str     "Friday Monitoring"  Outlook folder name to scan
+  --days-back              int     7                    Days to look back for emails
+  --output          -o     str     (auto-named)         Output HTML file path
+  --send-to         -s     str     None                 Additional recipient email
+  --email                  flag    False                Send to RECIPIENT_EMAIL
+  --no-browser             flag    False                Skip opening browser
+
+Notes:
+  - --email flag is now redundant; RECIPIENT_EMAIL is always included in
+    recipients unless it contains no "@" character (i.e. still a placeholder)
+  - --send-to adds an additional recipient on top of RECIPIENT_EMAIL
+  - --output defaults to: <script_dir>/monitoring_dashboard_YYYYMMDD.html
+
+
+================================================================================
+13. INTER-MODULE INTERFACE CONTRACT
+================================================================================
+
+dashboard.py depends on the following interfaces from the other two modules.
+These must be implemented exactly as described for the tool to function.
+
+---- outlook_reader.py --------------------------------------------------------
+
+  connect_outlook() -> namespace
+    Returns a win32com MAPI namespace object (GetNamespace("MAPI")).
+    Raises an exception if Outlook is not available.
+
+  get_folder(namespace, folder_name: str) -> folder_object
+    Returns an Outlook folder object for the given folder name.
+    Must raise FileNotFoundError if the folder does not exist.
+    The returned object must support:
+      folder.Name         (str)
+      folder.Items.Count  (int)
+
+  get_emails_by_subject(folder, keywords: list, days_back: int) -> list
+    Returns a list of dicts, each representing one email:
+      {
+        'subject'       : str,
+        'received_time' : datetime.datetime,
+        'sender'        : str,
+        'body'          : str
+      }
+    Filters to emails received within the last days_back days whose
+    subject contains at least one keyword from the keywords list
+    (case-insensitive match recommended).
+
+  send_email(to, subject, body_markdown, body_html) -> None
+    Legacy function. Not used for primary sending in the current version.
+    May be kept for backwards compatibility.
+
+---- email_parser.py ----------------------------------------------------------
+
+  parse_monitoring_emails(emails: list) -> MonitoringData
+    Input: list of email dicts (same format as get_emails_by_subject output)
+    Returns: an object (class or namedtuple) with three attributes:
+
+      .tablespaces   : list of objects, each with:
+                         .database        str
+                         .tablespace_name str
+                         .used_percent    float  (0.0 to 100.0)
+
+      .diskgroups    : list of objects, each with:
+                         .database        str
+                         .diskgroup_name  str
+                         .used_percent    float
+
+      .mount_points  : list of objects, each with:
+                         .host            str  (server hostname; may be empty)
+                         .mount_point     str  (filesystem path)
+                         .used_percent    float
+
+
+================================================================================
+14. ERROR HANDLING & EXIT CODES
+================================================================================
+
+  Scenario                          Handling                      Exit Code
+  --------------------------------  ----------------------------  ----------
+  outlook_reader / email_parser     Prints ImportError message,   sys.exit(1)
+  import fails                      instructs to check folder
+
+  Outlook connection fails          Prints error, instructs to    sys.exit(1)
+                                    open Outlook
+
+  Folder not found in Outlook       Prints FileNotFoundError      sys.exit(1)
+
+  No matching emails found          Prints warning, suggests      sys.exit(0)
+                                    --days-back 14
+
+  pywin32 not installed             Raises RuntimeError inside    Caught in run(),
+                                    _send_with_attachment()       prints error,
+                                                                  continues
+
+  Email send fails (any reason)     Exception caught in run(),    No exit,
+                                    prints error message          continues
+
+  HTML file write fails             Unhandled — will raise        Python default
+                                    IOError/PermissionError         traceback
+
+
+================================================================================
+15. PERFORMANCE CONSIDERATIONS
+================================================================================
+
+  - Email fetching is bounded by --days-back (default 7 days) and the number
+    of items in the Outlook folder. For large folders (1000+ items), the
+    get_emails_by_subject() scan may take several seconds.
+
+  - HTML generation is done entirely in memory using string concatenation and
+    list joins. For typical monitoring datasets (< 500 entries), this is
+    near-instantaneous.
+
+  - The defaultdict(lambda: defaultdict(list)) pattern for critical alert
+    collection creates nested structures on demand with no pre-allocation
+    overhead.
+
+  - deduplicate_latest() sorts the full email list once (O(n log n)) then
+    makes a single linear pass.
+
+  - _dedupe() for monitoring entries also sorts once then makes one linear pass.
+
+  - No caching or persistence is implemented between runs. Each invocation
+    is fully stateless.
+
+
+================================================================================
+16. EXTENSIBILITY GUIDE
+================================================================================
+
+---- Adding a new environment type -------------------------------------------
+  1. In _env(), add a new elif before the final "return OTHER":
+       if "STG" in t or "STAGE" in t: return "STAGE"
+  2. Add to ENV_COLORS:
+       "STAGE": "#f39c12"
+  3. Add to env_order list in build_html():
+       env_order = ["PROD", "QA/QTS", "TST", "STAGE", "DEV", "OTHER"]
+
+---- Adding a new monitoring resource type ------------------------------------
+  1. Add the new resource list to MonitoringData in email_parser.py
+  2. In build_html(), add a new _dedupe() call and groups population loop
+  3. Create a new all_XX_rows building block (following ts/dg/mp pattern)
+  4. Add a new _section_table() call and include in env_html
+  5. Add CRIT/WARN thresholds as constants at the top of dashboard.py
+  6. Add critical alert collection (crit_xx dict) and rendering block
+
+---- Changing alert thresholds at runtime ------------------------------------
+  Currently thresholds are compile-time constants. To make them runtime-
+  configurable, add argparse arguments:
+    p.add_argument("--ts-crit", type=int, default=90)
+  Then pass them into build_html() and propagate through _status() calls.
+
+---- Adding a new output format (e.g. PDF, Excel) ----------------------------
+  build_html() returns a pure string. The output format logic lives entirely
+  in run(). Add a new conditional block after the HTML save step in run():
+    if args.pdf:
+        generate_pdf(output_file)
+
+---- Scheduling (automated weekly run) ---------------------------------------
+  Use Windows Task Scheduler to run:
+    python C:\path\to\dashboard.py
+  Set trigger to: Weekly, Friday, at desired time.
+  Ensure the scheduled task runs under a user account with Outlook logged in.
+
+
+================================================================================
+17. KNOWN LIMITATIONS
+================================================================================
+
+  1. Windows-only: win32com (pywin32) is a Windows-exclusive library.
+     The tool cannot run on Linux or macOS without replacing the Outlook
+     integration with a different email access method (e.g. IMAP).
+
+  2. Outlook must be open: The COM automation requires Outlook to be running
+     in the foreground user session. It cannot connect to a background
+     or service Outlook instance.
+
+  3. No historical trending: Each run generates a standalone snapshot.
+     There is no built-in mechanism to compare current values against
+     previous weeks or display trend graphs.
+
+  4. Email parsing depends on email_parser.py: The quality and completeness
+     of the parsed data is entirely determined by how email_parser.py handles
+     the email body format. If email formats change, email_parser.py must
+     be updated.
+
+  5. Host field may be empty for mount points: If mp.host is empty or None,
+     the tool falls back to "Unknown Host" as the sub-group label. This may
+     cause multiple unrelated servers to appear grouped together.
+
+  6. RECIPIENT_EMAIL is a placeholder: The script will attempt to send to
+     "YOUR_EMAIL@domain.com" if not changed. This will fail silently (caught
+     exception) but will not stop the script from completing other steps.
+
+  7. No retry logic: If email sending fails (e.g. Outlook is slow to respond),
+     the error is logged and the script moves on. There is no retry mechanism.
+
+
+================================================================================
+18. GLOSSARY
+================================================================================
+
+  Term              Definition
+  ----------------  ------------------------------------------------------------
+  ASM               Automatic Storage Management. Oracle's volume manager for
+                    database storage. Diskgroups are ASM storage units.
+
+  COM / MAPI        Component Object Model / Messaging Application Programming
+                    Interface. Windows-native APIs used to interact with Outlook
+                    programmatically via win32com.
+
+  Diskgroup         An Oracle ASM diskgroup — a logical pool of disk storage
+                    managed by Oracle ASM.
+
+  Mount Point       A directory in a Linux/Unix filesystem at which a storage
+                    device or volume is attached (e.g. /u01, /data).
+
+  Tablespace        A logical storage unit in an Oracle database. Each tablespace
+                    contains one or more datafiles. Usage % reflects how much of
+                    the allocated space is consumed.
+
+  used_percent      The percentage of allocated capacity currently in use for a
+                    given resource (tablespace, diskgroup, or mount point).
+
+  olMailItem        Outlook COM constant (value = 0) representing a mail message
+                    item type, used when calling outlook.CreateItem(0).
+
+  pywin32           A Python package providing access to Windows COM and Win32
+                    APIs. Required for Outlook integration. Install: pip install
+                    pywin32.
+
+  defaultdict       A Python collections class that automatically creates a
+                    default value for missing keys. Used here with list and
+                    nested lambda for grouping data without KeyError checks.
+
+
+================================================================================
+END OF TECHNICAL DOCUMENTATION
+================================================================================
